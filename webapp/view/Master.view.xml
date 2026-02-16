@@ -19,8 +19,8 @@
                 
                 <tree:TreeTable
                     id="TreeTableBasic"
-                    rows="{path:'LocalDataModel>/treeTable'}"
-                    selectionMode="Single"
+                    rows="{path:'LocalDataModel>/treeTable', parameters:{arrayNames:['rows']}}"
+                    selectionMode="None"
                     rowSelectionChange="onRowSelectionChange"
                     enableSelectAll="false"
                     ariaLabelledBy="pageTitle">
@@ -35,7 +35,7 @@
                     <tree:Column id="colCategories" width="13rem">
                         <Label id="lblCategories" text="Asset Name"/>
                         <tree:template>
-                            <Text id="txtCategoryName" text="{= ${LocalDataModel>haschild} ? '> ' + ${LocalDataModel>Name} : ${LocalDataModel>Name} }" />
+                            <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
                         </tree:template>
                     </tree:Column>
                 </tree:columns>

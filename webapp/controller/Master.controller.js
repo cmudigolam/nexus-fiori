@@ -62,10 +62,12 @@ sap.ui.define([
                         var aRows = Array.isArray(response && response.rows) ? response.rows : [];
                         aRows = aRows.map(function (oRow) {
                             var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
-                            var bHasChild = oRow.haschild === true || oRow.haschild === "true" || oRow.child === true || oRow.child === "true";
+                            var bHasChild = oRow.Has_Children === true;
+                            var aChildRows = bHasChild ? [{ rows: [{}] }] : [{}];
                             return Object.assign({}, oRow, {
                                 Name: sAssetName,
-                                haschild: bHasChild
+                                Has_Children: bHasChild,
+                                rows: aChildRows
                             });
                         });
                         this.getLocalDataModel().setProperty("/treeTable", aRows);
