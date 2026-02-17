@@ -80,6 +80,81 @@ sap.ui.define([
                 });
         },
 
+        onRowSelect: function (oEvent) {
+            var oTable = oEvent.getSource();
+            var iSelectedIndex = oTable.getSelectedIndex();
+            if (iSelectedIndex < 0) {
+                return;
+            }
+            var oContext = oTable.getContextByIndex(iSelectedIndex);
+            if (!oContext) {
+                return;
+            }
+            var oSelectedRow = oContext.getProperty(oContext.getPath());
+            if (!oSelectedRow || !oSelectedRow.CT_ID) {
+                return;
+            }
+            var sCtId = oSelectedRow.CT_ID;
+            this.setBusyOn();
+
+            // First service call: get TD_IDs by CT_ID
+            $.ajax({
+                "url": "/bo/Info_Def/",
+                "method": "GET",
+                "dataType": "json",
+                "headers": {
+                    "X-NEXUS-Filter": '{"where":[{"field":"CT_ID","method":"eq","value":"' + sCtId + '"}]}'
+                },
+                "data": {
+                    "hash": this.hash
+                },
+                "success": function (response) {
+                    var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                    var aTdIds = aRows.map(function (row) {
+                        return row.TD_ID;
+                    }).filter(function (id) {
+                        return id !== undefined && id !== null;
+                    });
+
+                    if (aTdIds.length === 0) {
+                        this.getLocalDataModel().setProperty("/detailTiles", []);
+                        this.setBusyOff();
+                        this.getRouter().navTo("Detail", {}, true);
+                        return;
+                    }
+
+                    // Second service call: get table definitions by TD_IDs
+                    $.ajax({
+                        "url": "/bo/Table_Def/",
+                        "method": "GET",
+                        "dataType": "json",
+                        "headers": {
+                            "X-NEXUS-Filter": '{"where":[{"field":"TD_ID","method":"in","items":[' + aTdIds.join(",") + ']}]}'
+                        },
+                        "data": {
+                            "hash": this.hash
+                        },
+                        "success": function (response2) {
+                            var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).filter(function (row) {
+                                return row.DT_ID === 1;
+                            });
+                            this.getLocalDataModel().setProperty("/detailTiles", aTiles);
+                            this.setBusyOff();
+                            this.getRouter().navTo("Detail", {}, true);
+                        }.bind(this),
+                        "error": function () {
+                            MessageBox.error("Error while fetching table definitions");
+                            this.setBusyOff();
+                        }.bind(this)
+                    });
+                }.bind(this),
+                "error": function () {
+                    MessageBox.error("Error while fetching info definitions");
+                    this.setBusyOff();
+                }.bind(this)
+            });
+        },
+
         onToggleOpenState: function (oEvent) {
             var iRowIndex = oEvent.getParameter("rowIndex");
             var oContext = oEvent.getParameter("rowContext");

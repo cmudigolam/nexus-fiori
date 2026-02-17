@@ -1,9 +1,19 @@
 <mvc:View xmlns:core="sap.ui.core" xmlns:mvc="sap.ui.core.mvc" xmlns="sap.m" controllerName="com.nexus.asset.controller.Detail" xmlns:html="http://www.w3.org/1999/xhtml">
     <App>
         <pages>
-            <Page  title="Detail" showHeader="false" class="sapUiSizeCompact" enableScrolling="true">
+            <Page title="Detail" showHeader="true" class="sapUiSizeCompact" enableScrolling="true">
                 <content>
-                        
+                    <FlexBox id="tileContainer" wrap="Wrap" items="{LocalDataModel>/detailTiles}">
+                        <GenericTile
+                            header="{LocalDataModel>Name}"
+                            subheader="{LocalDataModel>Description}"
+                            class="sapUiTinyMarginBegin sapUiTinyMarginTop"
+                            press="onTilePress">
+                            <TileContent>
+                                <ImageContent src="sap-icon://table-view" />
+                            </TileContent>
+                        </GenericTile>
+                    </FlexBox>
                 </content>
             </Page>
         </pages>

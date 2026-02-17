@@ -19,7 +19,8 @@
                 <tree:TreeTable
                     id="TreeTableBasic"
                     rows="{path:'LocalDataModel>/treeTable', parameters:{arrayNames:['rows']}}"
-                    selectionMode="None"
+                    selectionMode="Single"
+                    rowSelectionChange="onRowSelect"
                     toggleOpenState="onToggleOpenState"
                     enableSelectAll="false"
                     ariaLabelledBy="pageTitle">
