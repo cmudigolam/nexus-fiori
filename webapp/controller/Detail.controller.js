@@ -15,11 +15,9 @@ sap.ui.define([
             this.setBusyOff();
         },
         onTilePress: function (oEvent) {
-            var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
-            if (oContext) {
-                var oTileData = oContext.getObject();
-                MessageToast.show("Selected: " + (oTileData.Name || ""));
-            }
+            // var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
+            // if (oContext) {
+            // }
         }
     });
 });
