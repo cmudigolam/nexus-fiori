@@ -128,8 +128,7 @@ sap.ui.define([
                 "error": function (errorData) {
                     MessageBox.error("Error while fetching child nodes");
                     this.setBusyOff();
-                }.bind(this)
-                
+                }.bind(this)             
             });
         }    
     });
