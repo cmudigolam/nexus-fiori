@@ -1,21 +1,53 @@
-<mvc:View xmlns:core="sap.ui.core" xmlns:mvc="sap.ui.core.mvc" xmlns="sap.m" controllerName="com.nexus.asset.controller.Detail" xmlns:html="http://www.w3.org/1999/xhtml">
-    <App>
-        <pages>
-            <Page title="Detail" showHeader="true" class="sapUiSizeCompact" enableScrolling="true">
-                <content>
-                    <FlexBox id="tileContainer" wrap="Wrap" items="{LocalDataModel>/detailTiles}">
-                        <GenericTile
-                            header="{LocalDataModel>Name}"
-                            subheader="{LocalDataModel>Description}"
-                            class="sapUiTinyMarginBegin sapUiTinyMarginTop"
-                            press="onTilePress">
-                            <TileContent>
-                                <ImageContent src="sap-icon://table-view" />
-                            </TileContent>
-                        </GenericTile>
-                    </FlexBox>
-                </content>
-            </Page>
-        </pages>
-    </App>
+<mvc:View controllerName="com.nexus.asset.controller.Detail" xmlns:mvc="sap.ui.core.mvc" xmlns:uxap="sap.uxap"
+ xmlns="sap.m" xmlns:f="sap.f" xmlns:l="sap.ui.layout"
+	xmlns:form="sap.ui.layout.form"
+	xmlns:core="sap.ui.core"
+	xmlns:cssgrid="sap.ui.layout.cssgrid">
+    <uxap:ObjectPageLayout id="idEngDrawingObjPageLayout" class="assetDetailPage" headerContentPinnable="true" showTitleInHeaderContent="true">
+        <uxap:headerTitle>
+            <uxap:ObjectPageDynamicHeaderTitle>
+                <uxap:heading>
+                    <Title text="Asset Details" wrapping="true" />
+                </uxap:heading>
+                <uxap:expandedContent>
+                    <ObjectStatus text="{= ${LocalDataModel>/selectedNodeData/Name} || 'No asset selected'}" />
+                </uxap:expandedContent>
+                <uxap:navigationActions>
+					<OverflowToolbarButton type="Transparent" icon="sap-icon://full-screen" press="handleFullScreen" id="enterFullScreenBtnMid" tooltip="Enter Full Screen Mode" visible="{= ${/actionButtonsInfo/midColumn/fullScreen} !== null }" />
+					<OverflowToolbarButton type="Transparent" icon="sap-icon://exit-full-screen" press="handleExitFullScreen" id="exitFullScreenBtnMid" tooltip="Exit Full Screen Mode" visible="{= ${/actionButtonsInfo/midColumn/exitFullScreen} !== null }" />
+					<OverflowToolbarButton type="Transparent" icon="sap-icon://decline" press="handleClose" tooltip="Close middle column" visible="{= ${/actionButtonsInfo/midColumn/closeColumn} !== null }" />
+                </uxap:navigationActions>
+            </uxap:ObjectPageDynamicHeaderTitle>
+        </uxap:headerTitle>
+        <uxap:sections>
+            <uxap:ObjectPageSection title="Data Tables">
+                <uxap:subSections>
+                    <uxap:ObjectPageSubSection title="Available Tiles">
+                        <uxap:blocks>
+                        <FlexBox id="tileContainer" class="assetTileGrid" wrap="Wrap" items="{LocalDataModel>/detailTiles}">
+                            <GenericTile
+                                header="{LocalDataModel>Name}"
+                                subheader="{LocalDataModel>Description}"
+                                class="assetDetailTile"
+                                press="onTilePress">
+                                <TileContent>
+                                    <ImageContent src="sap-icon://table-view" />
+                                </TileContent>
+                            </GenericTile>
+                        </FlexBox>
+                        </uxap:blocks>
+                    </uxap:ObjectPageSubSection>
+                </uxap:subSections>
+            </uxap:ObjectPageSection>
+        </uxap:sections>
+        <uxap:footer>
+            <OverflowToolbar visible="false">
+                <ToolbarSpacer />
+                <Button id="idEditButton"  text="Edit" press="onEditPress" />
+				<Button id="idSaveButton"  text="Save" press="onSavePress" />
+				<Button text="Re calculate" press="onRecalculatePress"/>
+            </OverflowToolbar>
+        </uxap:footer>
+    </uxap:ObjectPageLayout>
 </mvc:View>
+

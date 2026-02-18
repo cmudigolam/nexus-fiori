@@ -95,7 +95,7 @@
           "layout": "OneColumn"
         },
         {
-          "pattern": "Detail",
+          "pattern": "Detail/:layout:",
           "name": "Detail",
           "target": [
             "Master",

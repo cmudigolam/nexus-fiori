@@ -3,15 +3,18 @@
         <pages>
             <Page id="idPage" title="Dashboard" class="sapUiSizeCompact" enableScrolling="true">
                 <content>
-                    <GenericTile 
-                                     header="Asset Hierarchy"
-                                     subheader="Over view"
-                                     class="sapUiTinyMargin" press="onPressAssetHierarchyTile">
-                                     <TileContent>
-			                            <ImageContent src="sap-icon://home-share" />
-		                            </TileContent>
+                    <VBox class="assetDashboardContainer sapUiResponsiveContentPadding">
+                        <Title text="Applications" level="H3" class="sapUiSmallMarginBottom" />
+                        <GenericTile
+                            header="Asset Hierarchy"
+                            subheader="Open asset structure"
+                            class="assetLaunchTile"
+                            press="onPressAssetHierarchyTile">
+                            <TileContent>
+                                <ImageContent src="sap-icon://tree" />
+                            </TileContent>
                         </GenericTile>
-                        
+                    </VBox>
                 </content>
             </Page>
         </pages>

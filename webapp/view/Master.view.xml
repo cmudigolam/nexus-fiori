@@ -2,8 +2,8 @@
 	xmlns:f="sap.f"
     xmlns:core="sap.ui.core"
 	xmlns:mvc="sap.ui.core.mvc"   xmlns:u="sap.ui.unified"
-    xmlns:semantic="sap.f.semantic" xmlns:tree="sap.ui.table">
-    <f:DynamicPage id="dynamicPageId" toggleHeaderOnTitleClick="false" title="{i18n>assetTitle}">
+    xmlns:semantic="sap.f.semantic" xmlns:tree="sap.ui.table" xmlns:rm="sap.ui.table.rowmodes">
+    <f:DynamicPage id="dynamicPageId" toggleHeaderOnTitleClick="false" title="{i18n>assetTitle}" fitContent="true">
         <f:title>
             <f:DynamicPageTitle id="dynamicPageTitle">
                 <f:heading>
@@ -15,24 +15,51 @@
             </f:DynamicPageTitle>
         </f:title>
         <f:content>
-            <VBox id="mainVBox">           
+            <VBox id="mainVBox" class="assetMasterContent sapUiResponsiveContentPadding" fitContainer="true">           
                 <tree:TreeTable
                     id="TreeTableBasic"
+                    class="assetTreeTable"
                     rows="{path:'LocalDataModel>/treeTable', parameters:{arrayNames:['rows']}}"
+                    alternateRowColors="true"
+                    noData="Select an asset node to view hierarchy"
                     selectionMode="Single"
+                    selectionBehavior="RowOnly"
                     rowSelectionChange="onRowSelect"
                     toggleOpenState="onToggleOpenState"
                     enableSelectAll="false"
                     ariaLabelledBy="pageTitle">
+                    <tree:rowMode>
+                        <rm:Auto minRowCount="14" />
+                    </tree:rowMode>
                     <tree:extension>
-                    <OverflowToolbar style="Clear">
-                        <ComboBox items="{LocalDataModel>/treeList}" selectedKey="{LocalDataModel>/selectedNode}" selectionChange="onNodeSelect">
-                    <core:Item key="{LocalDataModel>CV_ID}" text="{LocalDataModel>Name}" />
-                </ComboBox>
-                    </OverflowToolbar>
-                </tree:extension>
+                        <OverflowToolbar style="Clear" class="assetMasterToolbar">
+                            <Title text="Root Asset" level="H5">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="Low" />
+                                </layoutData>
+                            </Title>
+                            <ToolbarSpacer />
+                            <Label text="Asset" labelFor="assetSelector">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="Low" />
+                                </layoutData>
+                            </Label>
+                            <ComboBox
+                                id="assetSelector"
+                                width="100%"
+                                placeholder="Select asset"
+                                items="{LocalDataModel>/treeList}"
+                                selectedKey="{LocalDataModel>/selectedNode}"
+                                selectionChange="onNodeSelect">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="NeverOverflow" minWidth="10rem" maxWidth="22rem" shrinkable="true" />
+                                </layoutData>
+                                <core:Item key="{LocalDataModel>CV_ID}" text="{LocalDataModel>Name}" />
+                            </ComboBox>
+                        </OverflowToolbar>
+                    </tree:extension>
                 <tree:columns>
-                    <tree:Column id="colCategories" width="13rem">
+                    <tree:Column id="colCategories">
                         <Label id="lblCategories" text="Asset Name"/>
                         <tree:template>
                             <Text id="txtCategoryName" text="{LocalDataModel>Name}" />

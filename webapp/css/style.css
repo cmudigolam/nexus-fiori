@@ -1,1 +1,47 @@
 /* Enter your custom styles here */
+.sapUxAPObjectPageContainerNoBar>.sapUxAPObjectPageSection:first-child:not(.sapUxAPObjectPageSectionNoTitle) {
+    margin-top: 0rem !important;
+}
+
+.assetAppShell {
+    background-color: var(--sapBackgroundColor);
+}
+
+.assetDashboardContainer {
+    max-width: 72rem;
+    margin: 0 auto;
+}
+
+.assetLaunchTile {
+    min-width: 14rem;
+}
+
+.assetMasterContent {
+    padding-top: 0.25rem;
+    height: 100%;
+}
+
+.assetMasterToolbar {
+    padding-inline: 0.25rem;
+}
+
+.assetTreeTable {
+    border-radius: 0.5rem;
+    overflow: hidden;
+    height: 100%;
+}
+
+.assetDetailPage {
+    background-color: var(--sapBackgroundColor);
+}
+
+.assetTileGrid {
+    gap: 0.75rem;
+}
+
+.assetDetailTile {
+    min-width: 11rem;
+    width: 11rem;
+    margin-right: 0.75rem;
+    margin-bottom: 0.75rem;
+}

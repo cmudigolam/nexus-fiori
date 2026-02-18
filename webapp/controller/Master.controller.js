@@ -8,7 +8,7 @@ sap.ui.define([
         onInit() {
             var oRouter = this.getRouter();
             if (oRouter) {
-                oRouter.attachRoutePatternMatched(this.onRouteMatched, this);
+                oRouter.getRoute("Master").attachPatternMatched(this.onRouteMatched, this);
             }
         },
         onRouteMatched: function () {
@@ -49,35 +49,35 @@ sap.ui.define([
             this.setBusyOn();
             // roote api call
             $.ajax({
-                    "url": "/bo/View_Node/",
-                    "method": "GET",
-                    "dataType": "json",
-                    "headers": {
-                        "X-NEXUS-Filter": '{"where":[{"field":"CV_ID","method":"eq","value":"' + oSelectedNode.CV_ID + '"}, {"field":"Link_ID"}]}'
-                    },
-                    "data": {
-                        "hash": this.hash
-                    },
-                    "success": function (response) {
-                        var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-                        aRows = aRows.map(function (oRow) {
-                            var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
-                            var bHasChild = oRow.Has_Children === true;
-                            var aChildRows = bHasChild ? [{ rows: [] }] : [];
-                            return Object.assign({}, oRow, {
-                                Name: sAssetName,
-                                Has_Children: bHasChild,
-                                rows: aChildRows
-                            });
+                "url": "/bo/View_Node/",
+                "method": "GET",
+                "dataType": "json",
+                "headers": {
+                    "X-NEXUS-Filter": '{"where":[{"field":"CV_ID","method":"eq","value":"' + oSelectedNode.CV_ID + '"}, {"field":"Link_ID"}]}'
+                },
+                "data": {
+                    "hash": this.hash
+                },
+                "success": function (response) {
+                    var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                    aRows = aRows.map(function (oRow) {
+                        var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
+                        var bHasChild = oRow.Has_Children === true;
+                        var aChildRows = bHasChild ? [{ rows: [] }] : [];
+                        return Object.assign({}, oRow, {
+                            Name: sAssetName,
+                            Has_Children: bHasChild,
+                            rows: aChildRows
                         });
-                        this.getLocalDataModel().setProperty("/treeTable", aRows);
-                        this.setBusyOff();
-                    }.bind(this),
-                    "error": function (errorData) {
-                        MessageBox.error("Error while fetching data");
-                        this.setBusyOff();
-                    }.bind(this)
-                });
+                    });
+                    this.getLocalDataModel().setProperty("/treeTable", aRows);
+                    this.setBusyOff();
+                }.bind(this),
+                "error": function (errorData) {
+                    MessageBox.error("Error while fetching data");
+                    this.setBusyOff();
+                }.bind(this)
+            });
         },
 
         onRowSelect: function (oEvent) {
@@ -115,11 +115,13 @@ sap.ui.define([
                     }).filter(function (id) {
                         return id !== undefined && id !== null;
                     });
-
+                    var oNextUIState = this.getOwnerComponent().getHelper().getNextUIState(1);
                     if (aTdIds.length === 0) {
                         this.getLocalDataModel().setProperty("/detailTiles", []);
                         this.setBusyOff();
-                        this.getRouter().navTo("Detail", {}, true);
+                        //this.getRouter().navTo("Detail", {}, true);
+                        this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
+                        this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
                         return;
                     }
 
@@ -140,7 +142,8 @@ sap.ui.define([
                             });
                             this.getLocalDataModel().setProperty("/detailTiles", aTiles);
                             this.setBusyOff();
-                            this.getRouter().navTo("Detail", {}, true);
+                            this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
+                        this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
                         }.bind(this),
                         "error": function () {
                             MessageBox.error("Error while fetching table definitions");
@@ -203,8 +206,8 @@ sap.ui.define([
                 "error": function (errorData) {
                     MessageBox.error("Error while fetching child nodes");
                     this.setBusyOff();
-                }.bind(this)             
+                }.bind(this)
             });
-        }    
+        }
     });
 });

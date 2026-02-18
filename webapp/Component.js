@@ -55,9 +55,9 @@ var LayoutType = fioriLibrary.LayoutType;
             var oModel = this.getModel(),
                 sLayout = oEvent.getParameters().arguments.layout;
 
-            // If there is no layout parameter, set a default layout (normally OneColumn)
+            // If there is no layout parameter, use semantic helper default layout
             if (!sLayout) {
-                sLayout = fioriLibrary.LayoutType.OneColumn;
+                sLayout = this.getHelper().getNextUIState(0).layout;
             }
 
             oModel.setProperty("/layout", sLayout);

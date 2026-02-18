@@ -1,10 +1,10 @@
 <mvc:View
-    controllerName="com.nexus.asset..controller.App"
+	controllerName="com.nexus.asset.controller.App"
 	xmlns="sap.f"
     height="100%"
 	xmlns:mvc="sap.ui.core.mvc"
     displayBlock="true"
-    class="sapUiSizeCompact"    
+	class="sapUiSizeCompact assetAppShell"    
 >
     <FlexibleColumnLayout
 		id="flexibleColumnLayout"
