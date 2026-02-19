@@ -1,0 +1,7 @@
+<mvc:View xmlns:mvc="sap.ui.core.mvc" xmlns="sap.m">
+  <Breadcrumbs id="idBreadcrumbs">
+    <links>
+      <Link text="{LocalDataModel>name}" press="onBreadcrumbPress" />
+    </links>
+  </Breadcrumbs>
+</mvc:View>

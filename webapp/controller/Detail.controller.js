@@ -35,6 +35,32 @@ sap.ui.define([
         },
         onRouteMatched: function () {
             this.setBusyOff();
+            // Calculate and set breadcrumb based on selectedNodeData
+            var oLocalDataModel = this.getLocalDataModel();
+            var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
+            var aTreeList = oLocalDataModel.getProperty("/treeList") || [];
+            var aBreadcrumb = [];
+            if (oSelectedNode && oSelectedNode.CV_ID) {
+                // Traverse up the tree to build the breadcrumb
+                var current = oSelectedNode;
+                while (current) {
+                    aBreadcrumb.unshift({
+                        name: current.Name || current.Full_location || current.Full_Location || current.full_location || current.FullLocation || "Node",
+                        CV_ID: current.CV_ID
+                    });
+                    // Find parent node
+                    current = aTreeList.find(function (n) { return n.CV_ID === current.Parent_CV_ID; });
+                }
+            }
+            oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
+        },
+        onBreadcrumbPress: function(oEvent) {
+            var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
+            var oData = oContext.getObject();
+            if (oData && oData.CV_ID) {
+                var oRouter = this.getRouter();
+                oRouter.navTo("Master", { selectedNode: oData.CV_ID });
+            }
         },
         onTilePress: function (oEvent) {
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
@@ -295,6 +321,37 @@ sap.ui.define([
 
 
 
+
+        onSharePress: function () {
+            var sUrl = window.location.href;
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(sUrl).then(function () {
+                    MessageToast.show("Link copied to clipboard");
+                }, function () {
+                    MessageToast.show("Failed to copy link");
+                });
+            } else {
+                MessageToast.show("Clipboard not available");
+            }
+        },
+
+        onTileSharePress: function (oEvent) {
+            var oContext = oEvent.getSource().getParent().getItems()[0].getBindingContext("LocalDataModel");
+            if (oContext) {
+                var sTileName = oContext.getProperty("Name");
+                var sUrl = window.location.href;
+                var sShareUrl = sUrl + (sUrl.indexOf("?") > -1 ? "&" : "?") + "tile=" + encodeURIComponent(sTileName);
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(sShareUrl).then(function () {
+                        MessageToast.show("Tile link copied to clipboard");
+                    }, function () {
+                        MessageToast.show("Failed to copy link");
+                    });
+                } else {
+                    MessageToast.show("Clipboard not available");
+                }
+            }
+        },
 
         handleFullScreen: function () {
             this.bFocusFullScreenButton = true;

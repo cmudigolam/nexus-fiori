@@ -1,8 +1,9 @@
 <mvc:View controllerName="com.nexus.asset.controller.Detail" xmlns:mvc="sap.ui.core.mvc" xmlns:uxap="sap.uxap"
  xmlns="sap.m" xmlns:f="sap.f" xmlns:l="sap.ui.layout"
-	xmlns:form="sap.ui.layout.form"
-	xmlns:core="sap.ui.core"
-	xmlns:cssgrid="sap.ui.layout.cssgrid">
+    xmlns:form="sap.ui.layout.form"
+    xmlns:core="sap.ui.core"
+    xmlns:cssgrid="sap.ui.layout.cssgrid">
+    <core:Fragment fragmentName="com.nexus.asset.view.Breadcrumbs" type="XML" />
     <uxap:ObjectPageLayout id="idEngDrawingObjPageLayout" class="assetDetailPage" headerContentPinnable="true" showTitleInHeaderContent="true">
         <uxap:headerTitle>
             <uxap:ObjectPageDynamicHeaderTitle>
@@ -12,6 +13,9 @@
                 <uxap:expandedContent>
                     <ObjectStatus text="{= ${LocalDataModel>/selectedNodeData/Name} || 'No asset selected'}" />
                 </uxap:expandedContent>
+                <uxap:actions>
+                    <OverflowToolbarButton id="shareBtn" type="Transparent" icon="sap-icon://action" press="onSharePress" tooltip="Share / Navigate" />
+                </uxap:actions>
                 <uxap:navigationActions>
 					<OverflowToolbarButton type="Transparent" icon="sap-icon://full-screen" press="handleFullScreen" id="enterFullScreenBtnMid" tooltip="Enter Full Screen Mode" visible="{= ${/actionButtonsInfo/midColumn/fullScreen} !== null }" />
 					<OverflowToolbarButton type="Transparent" icon="sap-icon://exit-full-screen" press="handleExitFullScreen" id="exitFullScreenBtnMid" tooltip="Exit Full Screen Mode" visible="{= ${/actionButtonsInfo/midColumn/exitFullScreen} !== null }" />
@@ -28,15 +32,18 @@
                             <VBox class="sapUiSmallMarginBottom">
                                 <Title text="{LocalDataModel>Category}" level="H5" class="sapUiTinyMarginBottom" />
                                 <FlexBox class="assetTileGrid" wrap="Wrap" items="{LocalDataModel>tiles}">
-                                    <GenericTile
-                                        header="{LocalDataModel>Name}"
-                                        subheader="{LocalDataModel>Description}"
-                                        class="assetDetailTile"
-                                        press="onTilePress">
-                                        <TileContent>
-                                            <ImageContent src="sap-icon://table-view" />
-                                        </TileContent>
-                                    </GenericTile>
+                                    <VBox class="assetTileWrapper">
+                                        <GenericTile
+                                            header="{LocalDataModel>Name}"
+                                            subheader="{LocalDataModel>Description}"
+                                            class="assetDetailTile"
+                                            press="onTilePress">
+                                            <TileContent>
+                                                <ImageContent src="{LocalDataModel>icon}" />
+                                            </TileContent>
+                                        </GenericTile>
+                                        <core:Icon src="sap-icon://action" class="assetTileShareIcon" press="onTileSharePress" tooltip="Share / Navigate" />
+                                    </VBox>
                                 </FlexBox>
                             </VBox>
                         </VBox>

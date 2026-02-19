@@ -45,3 +45,23 @@
     margin-right: 0.75rem;
     margin-bottom: 0.75rem;
 }
+
+.assetTileWrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.assetTileShareIcon {
+    position: absolute;
+    top: 0.5rem;
+    right: 1.25rem;
+    cursor: pointer;
+    color: var(--sapContent_IconColor);
+    font-size: 1rem;
+    z-index: 1;
+}
+
+.assetTileShareIcon:hover {
+    color: var(--sapContent_IconColor);
+    opacity: 0.7;
+}

@@ -155,8 +155,28 @@ sap.ui.define([
                             "hash": this.hash
                         },
                         "success": function (response2) {
-                            var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).filter(function (row) {
-                                return row.DT_ID === 1;
+                            // Map TD_IDs to icons based on their order in aTdIds
+                            var iconList = [
+                                "sap-icon://home",
+                                "sap-icon://account",
+                                "sap-icon://employee",
+                                "sap-icon://settings",
+                                "sap-icon://document",
+                                "sap-icon://calendar",
+                                "sap-icon://customer",
+                                "sap-icon://task",
+                                "sap-icon://attachment",
+                                "sap-icon://search",
+                                "sap-icon://activities",
+                                "sap-icon://activity-items"
+                            ];
+                            var tdIdToIcon = {};
+                            aTdIds.forEach(function(tdId, idx) {
+                                tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
+                            });
+                            var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
+                                tile.icon = tdIdToIcon[tile.TD_ID] || "sap-icon://hint";
+                                return tile;
                             });
                             var oCategoryMap = {};
                             aTiles.forEach(function (oTile) {
