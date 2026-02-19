@@ -65,6 +65,12 @@
                             <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
                         </tree:template>
                     </tree:Column>
+                    <tree:Column id="colAssetType">
+                        <Label id="lblAssetType" text="Asset Type"/>
+                        <tree:template>
+                            <Text id="txtAssetType" text="{LocalDataModel>AssetType}" />
+                        </tree:template>
+                    </tree:Column>
                 </tree:columns>
             </tree:TreeTable>
             </VBox>

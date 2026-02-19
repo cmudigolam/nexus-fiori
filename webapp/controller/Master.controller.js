@@ -24,7 +24,16 @@ sap.ui.define([
                         "hash": this.hash
                     },
                     "success": function (response) {
-                        this.getLocalDataModel().setProperty("/treeList", response.rows || []);
+                        var aTreeList = response.rows || [];
+                        this.getLocalDataModel().setProperty("/treeList", aTreeList);
+                        if (aTreeList.length > 0) {
+                            this.getLocalDataModel().setProperty("/selectedNode", aTreeList[0].CV_ID);
+                            this._loadRootNodes(aTreeList[0]);
+                            return;
+                        }
+                        this.getLocalDataModel().setProperty("/selectedNode", "");
+                        this.getLocalDataModel().setProperty("/selectedNodeData", null);
+                        this.getLocalDataModel().setProperty("/treeTable", []);
                         this.setBusyOff();
                     }.bind(this),
                     "error": function (errorData) {
@@ -45,6 +54,13 @@ sap.ui.define([
             }
             var sPath = oContext.getPath();
             var oSelectedNode = this.getLocalDataModel().getProperty(sPath);
+            this._loadRootNodes(oSelectedNode);
+        },
+
+        _loadRootNodes: function (oSelectedNode) {
+            if (!oSelectedNode || !oSelectedNode.CV_ID) {
+                return;
+            }
             this.getLocalDataModel().setProperty("/selectedNodeData", oSelectedNode || null);
             this.setBusyOn();
             // roote api call
@@ -66,6 +82,7 @@ sap.ui.define([
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
+                            AssetType: oRow.CT_ID || "",
                             Has_Children: bHasChild,
                             rows: aChildRows
                         });
@@ -118,6 +135,7 @@ sap.ui.define([
                     var oNextUIState = this.getOwnerComponent().getHelper().getNextUIState(1);
                     if (aTdIds.length === 0) {
                         this.getLocalDataModel().setProperty("/detailTiles", []);
+                        this.getLocalDataModel().setProperty("/detailTileGroups", []);
                         this.setBusyOff();
                         //this.getRouter().navTo("Detail", {}, true);
                         this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
@@ -140,7 +158,22 @@ sap.ui.define([
                             var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).filter(function (row) {
                                 return row.DT_ID === 1;
                             });
+                            var oCategoryMap = {};
+                            aTiles.forEach(function (oTile) {
+                                var sCategory = oTile.Category || oTile.category || "Uncategorized";
+                                if (!oCategoryMap[sCategory]) {
+                                    oCategoryMap[sCategory] = [];
+                                }
+                                oCategoryMap[sCategory].push(oTile);
+                            });
+                            var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
+                                return {
+                                    Category: sCategory,
+                                    tiles: oCategoryMap[sCategory]
+                                };
+                            });
                             this.getLocalDataModel().setProperty("/detailTiles", aTiles);
+                            this.getLocalDataModel().setProperty("/detailTileGroups", aTileGroups);
                             this.setBusyOff();
                             this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
                         this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
@@ -196,6 +229,7 @@ sap.ui.define([
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
+                            AssetType: oRow.CT_ID || "",
                             Has_Children: bHasChild,
                             rows: aChildRows
                         });

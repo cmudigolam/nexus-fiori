@@ -19,7 +19,7 @@ sap.ui.define([
 
       var data = oStorage.get("appSessionData");
       //console.log(data[0].TermsAndConditions); // storage
-      if (content.includes("TwoColumnsMidExpanded")) {
+      if (content.includes("TwoColumnsMidExpanded") || content.includes("MidColumnFullScreen") ) {
         var oRouter = sap.ui.core.UIComponent.getRouterFor(this);
         oRouter.navTo("Master", {
           layout: "OneColumn"

@@ -1,7 +1,17 @@
 sap.ui.define([
     "com/nexus/asset/controller/BaseController",
-    "sap/m/MessageToast"
-], (BaseController, MessageToast) => {
+    "sap/m/MessageToast",
+    "sap/ui/core/Fragment",
+    "sap/ui/model/json/JSONModel",
+    "sap/m/Label",
+    "sap/m/Text",
+    "sap/m/Input",
+    "sap/m/DatePicker",
+    "sap/m/CheckBox",
+    "sap/m/ComboBox",
+    "sap/m/VBox",
+    "sap/ui/layout/form/SimpleForm"
+], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, ComboBox, VBox, SimpleForm) => {
     "use strict";
 
     return BaseController.extend("com.nexus.asset.controller.Detail", {
@@ -27,10 +37,265 @@ sap.ui.define([
             this.setBusyOff();
         },
         onTilePress: function (oEvent) {
-            // var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
-            // if (oContext) {
-            // }
+            var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
+            if (!oContext) {
+                MessageToast.show("No tile context found");
+                return;
+            }
+
+            var sTableName = oContext.getProperty("Table_Name");
+            if (!sTableName) {
+                MessageToast.show("Table name is missing");
+                return;
+            }
+
+            var oLocalDataModel = this.getLocalDataModel();
+            var sHash = oLocalDataModel.getProperty("/HashToken");
+            this.setBusyOn();
+            var fnCallTableApi = function (sResolvedHash) {
+                this.setBusyOn();
+                $.ajax({
+                    "url": "/bo/" + encodeURIComponent(sTableName),
+                    "method": "GET",
+                    "dataType": "json",
+                    "data": {
+                        "hash": sResolvedHash
+                    },
+                    "success": function (response) {
+                        oLocalDataModel.setProperty("/selectedTableName", sTableName);
+                        oLocalDataModel.setProperty("/selectedTableData", response);
+                        this.openDynamicFormDialog(sTableName, response);
+                        this.setBusyOff();
+                    }.bind(this),
+                    "error": function () {
+                        MessageToast.show("Error while fetching table data");
+                        this.setBusyOff();
+                    }.bind(this)
+                });
+            }.bind(this);
+
+            if (sHash) {
+                fnCallTableApi(sHash);
+                return;
+            }
+
+            this.getoHashToken().done(function (oResult) {
+                var sFetchedHash = oResult && oResult.hash;
+                if (!sFetchedHash) {
+                    MessageToast.show("Unable to fetch hash token");
+                    return;
+                }
+                fnCallTableApi(sFetchedHash);
+            }).fail(function () {
+                MessageToast.show("Unable to fetch hash token");
+            });
         },
+
+        openDynamicFormDialog: function (sTableName, oFormData) {
+
+            var oCategorizedFields = {};
+            var aCategories = Array.isArray(oFormData && oFormData.categories) ? oFormData.categories : [];
+            var aFields = Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [];
+
+            aCategories.forEach(function (oCategory) {
+                oCategorizedFields[oCategory.name] = [];
+            });
+
+            if (!aCategories.length) {
+                oCategorizedFields.General = aFields.slice();
+            } else {
+                aFields.forEach(function (oField) {
+                    if (oField.category && oCategorizedFields[oField.category]) {
+                        oCategorizedFields[oField.category].push(oField);
+                    }
+                });
+            }
+
+            if (!aFields.length) {
+                MessageToast.show("No fields available");
+                return;
+            }
+
+            if (!aCategories.length) {
+                oFormData.categories = [{ name: "General" }];
+            } else {
+                oFormData.categories.forEach(function (oCategory) {
+                    if (!oCategorizedFields[oCategory.name]) {
+                        oCategorizedFields[oCategory.name] = [];
+                    }
+                });
+                aFields.forEach(function (oField) {
+                    if (!oField.category) {
+                        oCategorizedFields[oFormData.categories[0].name].push(oField);
+                    }
+                });
+            }
+
+            if (!Object.keys(oCategorizedFields).length) {
+                oCategorizedFields.General = aFields.slice();
+                oFormData.categories = [{ name: "General" }];
+            }
+
+            // Ensure each category has at least empty array
+            oFormData.categories.forEach(function (oCategory) {
+                if (!oCategorizedFields[oCategory.name]) {
+                    oCategorizedFields[oCategory.name] = [];
+                }
+            });
+            var self = this;
+            // Create dialog content model
+            var oDialogModel = {
+                title: sTableName,
+                formData: oFormData,
+                categorizedFields: oCategorizedFields
+            };
+            // Load and open the dialog
+            if (!self._oFormDialog) {
+                self._oFormDialog = sap.ui.xmlfragment(
+                    "com.nexus.asset.view.DynamicFormDialog",
+                    self
+                );
+                self.getView().addDependent(self._oFormDialog);
+            }
+
+            var oModel = new JSONModel(oDialogModel);
+            self._oFormDialog.setModel(oModel, "FormData");
+
+            // Build form content dynamically
+            self.buildFormContent(oFormData, oCategorizedFields);
+
+            self._oFormDialog.open();
+        },
+
+        buildFormContent: function (oFormData, oCategorizedFields) {
+            var oTabBar = this._oFormDialog.getContent()[0];
+            oTabBar.destroyItems();
+
+            var self = this;
+            var aCategories = Array.isArray(oFormData && oFormData.categories) && oFormData.categories.length
+                ? oFormData.categories
+                : [{ name: "General" }];
+
+            if (!oCategorizedFields.General && aCategories.length === 1 && aCategories[0].name === "General") {
+                oCategorizedFields.General = Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [];
+            }
+
+            // Create a tab for each category
+            aCategories.forEach(function (oCategory, iIndex) {
+                var aFormContent = [];
+
+                if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
+                    oCategorizedFields[oCategory.name].forEach(function (oField) {
+                        // Add label
+                        aFormContent.push(
+                            new sap.m.Label({
+                                text: oField.name || oField.fieldName,
+                                required: oField.required || false
+                            })
+                        );
+
+                        // Add input field based on field type
+                        var oInput = self.createFieldControl(oField);
+                        aFormContent.push(oInput);
+                    });
+                } else {
+                    // No fields for this category
+                    aFormContent.push(
+                        new sap.m.Text({
+                            text: "No fields available for this category",
+                            class: "sapUiMediumMargin"
+                        })
+                    );
+                }
+
+                // Create SimpleForm for this category
+                var oSimpleForm = new sap.ui.layout.form.SimpleForm({
+                    editable: true,
+                    layout: "ResponsiveGridLayout",
+                    content: aFormContent
+                });
+
+                // Create ScrollContainer for the form
+                var oScrollContainer = new sap.m.ScrollContainer({
+                    vertical: true,
+                    horizontal: true,
+                    content: [oSimpleForm]
+                });
+
+                // Create tab for this category
+                var oTab = new sap.m.IconTabFilter({
+                    text: oCategory.name,
+                    key: "tab" + iIndex,
+                    content: [oScrollContainer]
+                });
+
+                oTabBar.addItem(oTab);
+            });
+        },
+
+        createFieldControl: function (oField) {
+            // Create appropriate control based on field type
+            switch (oField.fieldTypeId) {
+                case 9: // Date field
+                    return new sap.m.DatePicker({
+                        placeholder: oField.name || oField.fieldName,
+                        valueFormat: "yyyy-MM-dd"
+                    });
+                case 5: // Boolean field
+                    return new sap.m.CheckBox({
+                        text: ""
+                    });
+                case 6: // Numeric field
+                    return new sap.m.Input({
+                        type: "Number",
+                        placeholder: oField.name || oField.fieldName
+                    });
+                case 37: // Lookup/Dropdown field
+                    return new sap.m.ComboBox({
+                        placeholder: oField.name || oField.fieldName
+                    });
+                case 38: // Sub-table
+                    return new sap.m.Input({
+                        placeholder: oField.name || oField.fieldName,
+                        enabled: false
+                    });
+                default: // Text field
+                    return new sap.m.Input({
+                        type: "Text",
+                        placeholder: oField.name || oField.fieldName
+                    });
+            }
+        },
+
+        getFieldInputType: function (oField) {
+            // Map field types to SAP UI5 input types
+            if (oField.fieldTypeId === 9) {
+                return "Date"; // Date field
+            } else if (oField.fieldTypeId === 5) {
+                return "Text"; // Boolean - would ideally be a checkbox
+            } else if (oField.fieldTypeId === 6) {
+                return "Number"; // Numeric field
+            } else {
+                return "Text"; // Default to text
+            }
+        },
+
+        onFormDialogClose: function () {
+            if (this._oFormDialog) {
+                this._oFormDialog.close();
+            }
+        },
+
+        onFormSave: function () {
+            MessageToast.show("Form data saved successfully!");
+            if (this._oFormDialog) {
+                this._oFormDialog.close();
+            }
+        },
+
+
+
+
         handleFullScreen: function () {
             this.bFocusFullScreenButton = true;
             var sNextLayout = this.getOwnerComponent().getModel().getProperty("/actionButtonsInfo/midColumn/fullScreen");
