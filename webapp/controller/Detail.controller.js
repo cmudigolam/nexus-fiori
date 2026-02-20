@@ -18,6 +18,7 @@ sap.ui.define([
         onInit() {
             var oExitButton = this.getView().byId("exitFullScreenBtnMid"),
                 oEnterButton = this.getView().byId("enterFullScreenBtnMid");
+            this.getLocalDataModel().setProperty("/shareUrl", "Share / Navigate");
             var oRouter = this.getRouter();
             if (oRouter) {
                 oRouter.getRoute("Detail").attachPatternMatched(this.onRouteMatched, this);
@@ -53,6 +54,13 @@ sap.ui.define([
                 }
             }
             oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
+
+            // Update share URL in model for tooltip binding
+            if (oSelectedNode && oSelectedNode.CV_ID) {
+                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.CV_ID);
+            } else {
+                oLocalDataModel.setProperty("/shareUrl", "Share / Navigate");
+            }
         },
         onBreadcrumbPress: function(oEvent) {
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
@@ -323,16 +331,14 @@ sap.ui.define([
 
 
         onSharePress: function () {
-            var sUrl = window.location.href;
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(sUrl).then(function () {
-                    MessageToast.show("Link copied to clipboard");
-                }, function () {
-                    MessageToast.show("Failed to copy link");
-                });
-            } else {
-                MessageToast.show("Clipboard not available");
+            var oLocalDataModel = this.getLocalDataModel();
+            var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
+            if (!oSelectedNode || !oSelectedNode.CV_ID) {
+                MessageToast.show("No asset selected");
+                return;
             }
+            var sUrl = "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + encodeURIComponent(oSelectedNode.CV_ID);
+            window.open(sUrl, "_blank");
         },
 
         onTileSharePress: function (oEvent) {

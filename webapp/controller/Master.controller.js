@@ -14,34 +14,60 @@ sap.ui.define([
         onRouteMatched: function () {
             this.setBusyOn();
             this.getLocalDataModel().setProperty("/treeTable", []);
+            this._compTypeMap = {};
             this.getoHashToken().done(function (result) {
-                this.hash = result.hash
+                this.hash = result.hash;
+                // Fetch Comp_Type to build CT_ID -> Name map
                 $.ajax({
-                    "url": "/bo/Comp_view/",
+                    "url": "/bo/Comp_Type/",
                     "method": "GET",
                     "dataType": "json",
                     "data": {
                         "hash": this.hash
                     },
-                    "success": function (response) {
-                        var aTreeList = response.rows || [];
-                        this.getLocalDataModel().setProperty("/treeList", aTreeList);
-                        if (aTreeList.length > 0) {
-                            this.getLocalDataModel().setProperty("/selectedNode", aTreeList[0].CV_ID);
-                            this._loadRootNodes(aTreeList[0]);
-                            return;
-                        }
-                        this.getLocalDataModel().setProperty("/selectedNode", "");
-                        this.getLocalDataModel().setProperty("/selectedNodeData", null);
-                        this.getLocalDataModel().setProperty("/treeTable", []);
-                        this.setBusyOff();
+                    "success": function (compTypeResponse) {
+                        var aCompTypes = Array.isArray(compTypeResponse && compTypeResponse.rows) ? compTypeResponse.rows : [];
+                        aCompTypes.forEach(function (oType) {
+                            if (oType.CT_ID !== undefined && oType.CT_ID !== null) {
+                                this._compTypeMap[oType.CT_ID] = oType.Name || "";
+                            }
+                        }.bind(this));
+                        this._loadCompView();
                     }.bind(this),
-                    "error": function (errorData) {
-                        MessageBox.error("Error while fetching data");
-                        this.setBusyOff();
+                    "error": function () {
+                        // Continue loading even if Comp_Type fails
+                        this._loadCompView();
                     }.bind(this)
                 });
             }.bind(this));
+        },
+
+        _loadCompView: function () {
+            $.ajax({
+                "url": "/bo/Comp_view/",
+                "method": "GET",
+                "dataType": "json",
+                "data": {
+                    "hash": this.hash
+                },
+                "success": function (response) {
+                    var aTreeList = response.rows || [];
+                    this.getLocalDataModel().setProperty("/treeList", aTreeList);
+                    if (aTreeList.length > 0) {
+                        this.getLocalDataModel().setProperty("/selectedNode", aTreeList[0].CV_ID);
+                        this._loadRootNodes(aTreeList[0]);
+                        return;
+                    }
+                    this.getLocalDataModel().setProperty("/selectedNode", "");
+                    this.getLocalDataModel().setProperty("/selectedNodeData", null);
+                    this.getLocalDataModel().setProperty("/treeTable", []);
+                    this.setBusyOff();
+                }.bind(this),
+                "error": function (errorData) {
+                    MessageBox.error("Error while fetching data");
+                    this.setBusyOff();
+                }.bind(this)
+            });
         },
         onNodeSelect: function (oEvent) {
             var oItem = oEvent.getParameter("selectedItem");
@@ -80,13 +106,15 @@ sap.ui.define([
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
+                        var sCtId = oRow.CT_ID || "";
+                        var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
-                            AssetType: oRow.CT_ID || "",
+                            AssetType: sAssetType,
                             Has_Children: bHasChild,
                             rows: aChildRows
                         });
-                    });
+                    }.bind(this));
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
                     this.setBusyOff();
                 }.bind(this),
@@ -247,13 +275,15 @@ sap.ui.define([
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
+                        var sCtId = oRow.CT_ID || "";
+                        var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
-                            AssetType: oRow.CT_ID || "",
+                            AssetType: sAssetType,
                             Has_Children: bHasChild,
                             rows: aChildRows
                         });
-                    });
+                    }.bind(this));
                     this.getLocalDataModel().setProperty(sPath, aRows);
                     this.setBusyOff();
                 }.bind(this),
