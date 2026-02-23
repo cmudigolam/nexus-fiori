@@ -76,6 +76,7 @@ sap.ui.define([
         },
         getoHashToken: function () {
             return $.ajax({
+                //this.getCompleteURL() + 
                 "url": "/security/login",
                 "method": "GET",
                 "success": function (result, xhr, successData) {

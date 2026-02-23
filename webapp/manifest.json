@@ -132,6 +132,6 @@
   },
   "sap.cloud": {
     "public": true,
-    "service": "asset"
+    "service": "comnexusasset"
   }
 }
