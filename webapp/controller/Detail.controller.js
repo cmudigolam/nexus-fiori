@@ -56,10 +56,10 @@ sap.ui.define([
             oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
 
             // Update share URL in model for tooltip binding
-            if (oSelectedNode && oSelectedNode.CV_ID) {
-                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.CV_ID);
+            if (oSelectedNode && oSelectedNode.Component_ID) {
+                oLocalDataModel.setProperty("/shareUrl1", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.Component_ID);
             } else {
-                oLocalDataModel.setProperty("/shareUrl", "Share / Navigate");
+                oLocalDataModel.setProperty("/shareUrl1", "Share / Navigate");
             }
         },
         onBreadcrumbPress: function(oEvent) {

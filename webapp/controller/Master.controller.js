@@ -140,6 +140,8 @@ sap.ui.define([
                 return;
             }
             var sCtId = oSelectedRow.CT_ID;
+            var sCompoonentID = oSelectedRow.Component_ID;
+            this.getLocalDataModel().setProperty("/sCompoonentID",sCompoonentID);
             this.setBusyOn();
 
             // First service call: get TD_IDs by CT_ID
@@ -171,6 +173,14 @@ sap.ui.define([
                         return;
                     }
 
+                    // Update share URL in model for tooltip binding
+                    var oLocalDataModel = this.getLocalDataModel();
+                    if (oLocalDataModel.getProperty("/sCompoonentID")) {
+                        oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sCompoonentID);
+                    } else {
+                        oLocalDataModel.setProperty("/shareUrl", "Share / Navigate");
+                    }
+
                     // Second service call: get table definitions by TD_IDs
                     $.ajax({
                         "url": "/bo/Table_Def/",
@@ -199,7 +209,7 @@ sap.ui.define([
                                 "sap-icon://activity-items"
                             ];
                             var tdIdToIcon = {};
-                            aTdIds.forEach(function(tdId, idx) {
+                            aTdIds.forEach(function (tdId, idx) {
                                 tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
                             });
                             var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
@@ -224,7 +234,7 @@ sap.ui.define([
                             this.getLocalDataModel().setProperty("/detailTileGroups", aTileGroups);
                             this.setBusyOff();
                             this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
-                        this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
+                            this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
                         }.bind(this),
                         "error": function () {
                             MessageBox.error("Error while fetching table definitions");
