@@ -17,8 +17,9 @@ sap.ui.define([
     return BaseController.extend("com.nexus.asset.controller.Detail", {
         onInit() {
             var oExitButton = this.getView().byId("exitFullScreenBtnMid"),
-                oEnterButton = this.getView().byId("enterFullScreenBtnMid");
-            this.getLocalDataModel().setProperty("/shareUrl", "Share / Navigate");
+                oEnterButton = this.getView().byId("enterFullScreenBtnMid"),
+                oLocalDataModel = this.getLocalDataModel();
+            oLocalDataModel.setProperty("/shareUrl", "Share / Navigate");
             var oRouter = this.getRouter();
             if (oRouter) {
                 oRouter.getRoute("Detail").attachPatternMatched(this.onRouteMatched, this);
@@ -33,25 +34,36 @@ sap.ui.define([
                     }.bind(this)
                 });
             }, this);
+            sap.ui.getCore().getEventBus().subscribe("Detail", "UpdateBreadcrumb", this.updateBreadcrumb, this);
         },
         onRouteMatched: function () {
             this.setBusyOff();
-            // Calculate and set breadcrumb based on selectedNodeData
+            //this.updateBreadcrumb();
+        },
+        updateBreadcrumb: function () {
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
-            var aTreeList = oLocalDataModel.getProperty("/treeList") || [];
             var aBreadcrumb = [];
             if (oSelectedNode && oSelectedNode.CV_ID) {
-                // Traverse up the tree to build the breadcrumb
-                var current = oSelectedNode;
-                while (current) {
-                    aBreadcrumb.unshift({
-                        name: current.Name || current.Full_location || current.Full_Location || current.full_location || current.FullLocation || "Node",
-                        CV_ID: current.CV_ID
+                var fullLocation = oSelectedNode.Full_Location || oSelectedNode.Full_location || oSelectedNode.full_location || oSelectedNode.FullLocation || "";
+                var segments = fullLocation ? fullLocation.split(" / ") : [];
+                var allNodes = oLocalDataModel.getProperty("/allNodes") || [];
+                // For each segment, reconstruct the path up to that segment and find the node with matching Full_Location
+                var pathSoFar = [];
+                segments.forEach(function(segment) {
+                    pathSoFar.push(segment);
+                    var segmentPath = pathSoFar.join(" / ");
+                    var node = allNodes.find(function(n) {
+                        var nodeFullLoc = n.Full_Location;
+                        if (nodeFullLoc === segmentPath) {
+                            return true;
+                        };
                     });
-                    // Find parent node
-                    current = aTreeList.find(function (n) { return n.CV_ID === current.Parent_CV_ID; });
-                }
+                    aBreadcrumb.push({
+                        name: segment,
+                        CV_ID: node ? node.CV_ID : null
+                    });
+                });
             }
             oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
 
@@ -65,10 +77,107 @@ sap.ui.define([
         onBreadcrumbPress: function(oEvent) {
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
             var oData = oContext.getObject();
-            if (oData && oData.CV_ID) {
-                var oRouter = this.getRouter();
-                oRouter.navTo("Master", { selectedNode: oData.CV_ID });
+            var oLocalDataModel = this.getLocalDataModel();
+            var allNodes = oLocalDataModel.getProperty("/allNodes") || [];
+            var targetCV_ID = oData && oData.CV_ID;
+            if (!targetCV_ID) {
+                return;
             }
+            var oNode = allNodes.find(function(n) { return n.CV_ID === targetCV_ID; });
+            if (!oNode || !oNode.CT_ID) {
+                return;
+            }
+            oLocalDataModel.setProperty("/selectedNodeData", oNode);
+            sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
+            var sCtId = oNode.CT_ID;
+            this.setBusyOn();
+            // First service call: get TD_IDs by CT_ID
+            $.ajax({
+                "url": "/bo/Info_Def/",
+                "method": "GET",
+                "dataType": "json",
+                "headers": {
+                    "X-NEXUS-Filter": '{"where":[{"field":"CT_ID","method":"eq","value":"' + sCtId + '"}]}'
+                },
+                "data": {
+                    "hash": this.getLocalDataModel().getProperty("/HashToken")
+                },
+                "success": function (response) {
+                    var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                    var aTdIds = aRows.map(function (row) {
+                        return row.TD_ID;
+                    }).filter(function (id) {
+                        return id !== undefined && id !== null;
+                    });
+                    if (aTdIds.length === 0) {
+                        oLocalDataModel.setProperty("/detailTiles", []);
+                        oLocalDataModel.setProperty("/detailTileGroups", []);
+                        this.setBusyOff();
+                        return;
+                    }
+                    // Second service call: get table definitions by TD_IDs
+                    $.ajax({
+                        "url": "/bo/Table_Def/",
+                        "method": "GET",
+                        "dataType": "json",
+                        "headers": {
+                            "X-NEXUS-Filter": '{"where":[{"field":"TD_ID","method":"in","items":[' + aTdIds.join(",") + ']}]}'
+                        },
+                        "data": {
+                            "hash": this.getLocalDataModel().getProperty("/HashToken")
+                        },
+                        "success": function (response2) {
+                            var iconList = [
+                                "sap-icon://home",
+                                "sap-icon://account",
+                                "sap-icon://employee",
+                                "sap-icon://settings",
+                                "sap-icon://document",
+                                "sap-icon://calendar",
+                                "sap-icon://customer",
+                                "sap-icon://task",
+                                "sap-icon://attachment",
+                                "sap-icon://search",
+                                "sap-icon://activities",
+                                "sap-icon://activity-items"
+                            ];
+                            var tdIdToIcon = {};
+                            aTdIds.forEach(function(tdId, idx) {
+                                tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
+                            });
+                            var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
+                                tile.icon = tdIdToIcon[tile.TD_ID] || "sap-icon://hint";
+                                return tile;
+                            });
+                            var oCategoryMap = {};
+                            aTiles.forEach(function (oTile) {
+                                var sCategory = oTile.Category || oTile.category || "Uncategorized";
+                                if (!oCategoryMap[sCategory]) {
+                                    oCategoryMap[sCategory] = [];
+                                }
+                                oCategoryMap[sCategory].push(oTile);
+                            });
+                            var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
+                                return {
+                                    Category: sCategory,
+                                    tiles: oCategoryMap[sCategory]
+                                };
+                            });
+                            oLocalDataModel.setProperty("/detailTiles", aTiles);
+                            oLocalDataModel.setProperty("/detailTileGroups", aTileGroups);
+                            this.setBusyOff();
+                        }.bind(this),
+                        "error": function () {
+                            MessageToast.show("Error while fetching table definitions");
+                            this.setBusyOff();
+                        }.bind(this)
+                    });
+                }.bind(this),
+                "error": function () {
+                    MessageToast.show("Error while fetching info definitions");
+                    this.setBusyOff();
+                }.bind(this)
+            });
         },
         onTilePress: function (oEvent) {
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");

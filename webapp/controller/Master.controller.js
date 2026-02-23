@@ -53,6 +53,7 @@ sap.ui.define([
                 "success": function (response) {
                     var aTreeList = response.rows || [];
                     this.getLocalDataModel().setProperty("/treeList", aTreeList);
+                    this.getLocalDataModel().setProperty("/allNodes", aTreeList);
                     if (aTreeList.length > 0) {
                         this.getLocalDataModel().setProperty("/selectedNode", aTreeList[0].CV_ID);
                         this._loadRootNodes(aTreeList[0]);
@@ -88,6 +89,7 @@ sap.ui.define([
                 return;
             }
             this.getLocalDataModel().setProperty("/selectedNodeData", oSelectedNode || null);
+            //this._mergeParentIfMissing(oSelectedNode);
             this.setBusyOn();
             // roote api call
             $.ajax({
@@ -125,6 +127,41 @@ sap.ui.define([
             });
         },
 
+        // _mergeParentIfMissing: function(node) {
+        //     var oLocalDataModel = this.getLocalDataModel();
+        //     var allNodes = oLocalDataModel.getProperty("/allNodes") || [];
+        //     var nodeMap = {};
+        //     allNodes.forEach(function(n) { nodeMap[n.CV_ID] = n; });
+        //     function fetchParent(currentNode) {
+        //         if (!currentNode || !currentNode.VN_ID || nodeMap[currentNode.VN_ID]) {
+        //             return;
+        //         }
+        //         $.ajax({
+        //             "url": "/bo/View_Node/",
+        //             "method": "GET",
+        //             "dataType": "json",
+        //             "headers": {
+        //                 "X-NEXUS-Filter": '{"where":[{"field":"CV_ID","method":"eq","value":"' + currentNode.VN_ID + '"}]}'
+        //             },
+        //             "data": {
+        //                 "hash": oLocalDataModel.getProperty("/HashToken")
+        //             },
+        //             "success": function (response) {
+        //                 var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+        //                 if (aRows.length > 0) {
+        //                     var parent = aRows[0];
+        //                     nodeMap[parent.CV_ID] = parent;
+        //                     var mergedNodes = Object.values(nodeMap);
+        //                     oLocalDataModel.setProperty("/allNodes", mergedNodes);
+        //                     // Recursively fetch next ancestor
+        //                     fetchParent(parent);
+        //                 }
+        //             }
+        //         });
+        //     }
+        //     fetchParent(node);
+        // },
+
         onRowSelect: function (oEvent) {
             var oTable = oEvent.getSource();
             var iSelectedIndex = oTable.getSelectedIndex();
@@ -139,6 +176,11 @@ sap.ui.define([
             if (!oSelectedRow || !oSelectedRow.CT_ID) {
                 return;
             }
+            // Update selectedNodeData to the selected row
+            this.getLocalDataModel().setProperty("/selectedNodeData", oSelectedRow);
+            // Publish breadcrumb update event
+            sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
+            
             var sCtId = oSelectedRow.CT_ID;
             var sCompoonentID = oSelectedRow.Component_ID;
             this.getLocalDataModel().setProperty("/sCompoonentID",sCompoonentID);
@@ -167,7 +209,6 @@ sap.ui.define([
                         this.getLocalDataModel().setProperty("/detailTiles", []);
                         this.getLocalDataModel().setProperty("/detailTileGroups", []);
                         this.setBusyOff();
-                        //this.getRouter().navTo("Detail", {}, true);
                         this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
                         this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
                         return;
@@ -295,6 +336,13 @@ sap.ui.define([
                         });
                     }.bind(this));
                     this.getLocalDataModel().setProperty(sPath, aRows);
+                    // Merge new nodes into /allNodes
+                    var allNodes = this.getLocalDataModel().getProperty("/allNodes") || [];
+                    var nodeMap = {};
+                    allNodes.forEach(function(n) { nodeMap[n.CV_ID] = n; });
+                    aRows.forEach(function(n) { nodeMap[n.CV_ID] = n; });
+                    var mergedNodes = Object.values(nodeMap);
+                    this.getLocalDataModel().setProperty("/allNodes", mergedNodes);
                     this.setBusyOff();
                 }.bind(this),
                 "error": function (errorData) {
