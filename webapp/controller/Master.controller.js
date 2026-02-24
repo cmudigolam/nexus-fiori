@@ -19,7 +19,7 @@ sap.ui.define([
                 this.hash = result.hash;
                 // Fetch Comp_Type to build CT_ID -> Name map
                 $.ajax({
-                    "url": this.getCompleteURL() + "/bo/Comp_Type/",
+                    "url": "/bo/Comp_Type/",
                     "method": "GET",
                     "dataType": "json",
                     "data": {
