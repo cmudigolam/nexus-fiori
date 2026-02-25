@@ -55,8 +55,19 @@ sap.ui.define([
                     this.getLocalDataModel().setProperty("/treeList", aTreeList);
                     this.getLocalDataModel().setProperty("/allNodes", aTreeList);
                     if (aTreeList.length > 0) {
-                        this.getLocalDataModel().setProperty("/selectedNode", aTreeList[0].CV_ID);
-                        this._loadRootNodes(aTreeList[0]);
+                        // Preserve previously selected asset if it still exists in the list
+                        var sPreviousKey = this.getLocalDataModel().getProperty("/selectedNode");
+                        var oSelectedNode = null;
+                        if (sPreviousKey) {
+                            oSelectedNode = aTreeList.find(function (oItem) {
+                                return oItem.CV_ID === sPreviousKey;
+                            });
+                        }
+                        if (!oSelectedNode) {
+                            oSelectedNode = aTreeList[0];
+                        }
+                        this.getLocalDataModel().setProperty("/selectedNode", oSelectedNode.CV_ID);
+                        this._loadRootNodes(oSelectedNode);
                         return;
                     }
                     this.getLocalDataModel().setProperty("/selectedNode", "");
@@ -118,6 +129,13 @@ sap.ui.define([
                         });
                     }.bind(this));
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
+                    // Collapse all root nodes after the TreeTable has processed the new data
+                    var oTreeTable = this.byId("TreeTableBasic");
+                    if (oTreeTable) {
+                        oTreeTable.attachEventOnce("rowsUpdated", function () {
+                            oTreeTable.collapseAll();
+                        });
+                    }
                     this.setBusyOff();
                 }.bind(this),
                 "error": function (errorData) {

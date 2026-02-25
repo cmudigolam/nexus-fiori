@@ -10,8 +10,9 @@ sap.ui.define([
     "sap/m/CheckBox",
     "sap/m/ComboBox",
     "sap/m/VBox",
-    "sap/ui/layout/form/SimpleForm"
-], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, ComboBox, VBox, SimpleForm) => {
+    "sap/ui/layout/form/SimpleForm",
+    "sap/ui/core/Item"
+], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, ComboBox, VBox, SimpleForm, Item) => {
     "use strict";
 
     return BaseController.extend("com.nexus.asset.controller.Detail", {
@@ -224,13 +225,20 @@ sap.ui.define([
 
                 if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
                     oCategorizedFields[oCategory.name].forEach(function (oField) {
-                        // Add label
-                        aFormContent.push(
-                            new sap.m.Label({
-                                text: oField.name || oField.fieldName,
-                                required: oField.required || false
-                            })
-                        );
+                        // Add label with comments as tooltip
+                        var oLabel = new sap.m.Label({
+                            text: oField.name || oField.fieldName,
+                            required: oField.required || false
+                        });
+                        if (oField.comments) {
+                            oLabel.setTooltip(oField.comments);
+                            oLabel.addEventDelegate({
+                                onAfterRendering: function () {
+                                    oLabel.$().attr("title", oField.comments);
+                                }
+                            });
+                        }
+                        aFormContent.push(oLabel);
 
                         // Add input field based on field type
                         var oInput = self.createFieldControl(oField);
@@ -277,6 +285,16 @@ sap.ui.define([
         },
 
         createFieldControl: function (oField) {
+            // If field has a lookupListId, create a ComboBox and load lookup items
+            if (oField.lookupListId) {
+                var oComboBox = new sap.m.ComboBox({
+                    placeholder: oField.name || oField.fieldName,
+                    width: "100%"
+                });
+                this._loadLookupItems(oComboBox, oField.lookupListId);
+                return oComboBox;
+            }
+
             // Create appropriate control based on field type
             switch (oField.fieldTypeId) {
                 case 9: // Date field
@@ -308,6 +326,52 @@ sap.ui.define([
                         placeholder: oField.name || oField.fieldName
                     });
             }
+        },
+
+        _loadLookupItems: function (oComboBox, sLookupListId) {
+            var oLocalDataModel = this.getLocalDataModel();
+            var sHash = oLocalDataModel.getProperty("/HashToken");
+            var self = this;
+
+            var fnFetch = function (sResolvedHash) {
+                $.ajax({
+                    "url": "/bo/Lookup_Item/",
+                    "method": "GET",
+                    "dataType": "json",
+                    "headers": {
+                        "X-NEXUS-Filter": JSON.stringify({ "where": [{ "field": "LL_ID", "method": "eq", "value": sLookupListId }] }),
+                        "X-NEXUS-Sort": JSON.stringify([{ "field": "Value", "ascending": false }])
+                    },
+                    "data": {
+                        "hash": sResolvedHash
+                    },
+                    "success": function (response) {
+                        var aItems = Array.isArray(response && response.rows) ? response.rows : [];
+                        oComboBox.removeAllItems();
+                        aItems.forEach(function (oItem) {
+                            oComboBox.addItem(new Item({
+                                key: oItem.LI_ID || oItem.Value || "",
+                                text: oItem.Value || oItem.Name || ""
+                            }));
+                        });
+                    },
+                    "error": function () {
+                        MessageToast.show("Error loading lookup items");
+                    }
+                });
+            };
+
+            if (sHash) {
+                fnFetch(sHash);
+                return;
+            }
+
+            this.getoHashToken().done(function (oResult) {
+                var sFetchedHash = oResult && oResult.hash;
+                if (sFetchedHash) {
+                    fnFetch(sFetchedHash);
+                }
+            });
         },
 
         getFieldInputType: function (oField) {
@@ -354,7 +418,7 @@ sap.ui.define([
                         }
                         var sPipingDesignCode = oRecord && oRecord.Piping_Design_Code;
                         if (sPipingDesignCode) {
-                            self._checkPermissions(sPipingDesignCode, sResolvedHash);
+                            self._checkPermissions(sPipingDesignCode, sResolvedHash); // need to enable
                         } else {
                             // No Piping_Design_Code available, default to read-only
                             self._setFormReadOnly(true);
@@ -426,6 +490,7 @@ sap.ui.define([
         },
 
         _setFormReadOnly: function (bReadOnly) {
+            return; // Temporarily disable read-only logic until permissions are properly set up
             // Set all form field controls to read-only / non-editable
             if (this._fieldControlMap) {
                 Object.keys(this._fieldControlMap).forEach(function (sKey) {
@@ -476,7 +541,16 @@ sap.ui.define([
                 } else if (oControl.isA("sap.m.CheckBox")) {
                     oControl.setSelected(!!vValue);
                 } else if (oControl.isA("sap.m.ComboBox")) {
-                    oControl.setValue(String(vValue));
+                    // Try to match by key first, then fall back to value
+                    var aItems = oControl.getItems();
+                    var bFound = aItems.some(function (oItem) {
+                        return oItem.getKey() === String(vValue);
+                    });
+                    if (bFound) {
+                        oControl.setSelectedKey(String(vValue));
+                    } else {
+                        oControl.setValue(String(vValue));
+                    }
                 }
             });
         },
