@@ -196,9 +196,27 @@ sap.ui.define([
             }
             // Update selectedNodeData to the selected row
             this.getLocalDataModel().setProperty("/selectedNodeData", oSelectedRow);
+            // Use allNodes for CV_ID path, no parent fetch
+            var oLocalDataModel = this.getLocalDataModel();
+            var allNodes = oLocalDataModel.getProperty("/allNodes") || [];
+            var fullLocation = oSelectedRow.Full_Location || oSelectedRow.Full_location || oSelectedRow.full_location || oSelectedRow.FullLocation || "";
+            var segments = fullLocation ? fullLocation.split(" / ") : [];
+            var pathSoFar = [];
+            var cvPath = [];
+            segments.forEach(function(segment) {
+                pathSoFar.push(segment);
+                var segmentPath = pathSoFar.join(" / ");
+                var node = allNodes.find(function(n) {
+                    var nodeFullLoc = n.Full_Location || n.Full_location || n.full_location || n.FullLocation || "";
+                    return nodeFullLoc === segmentPath;
+                });
+                cvPath.push(node ? node.CV_ID : null);
+            });
+            oLocalDataModel.setProperty("/selectedNodeCVPath", cvPath);
             // Publish breadcrumb update event
             sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
-            
+            // Publish breadcrumb update event
+            sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
             var sCtId = oSelectedRow.CT_ID;
             var sCompoonentID = oSelectedRow.Component_ID;
             this.getLocalDataModel().setProperty("/sCompoonentID",sCompoonentID);
