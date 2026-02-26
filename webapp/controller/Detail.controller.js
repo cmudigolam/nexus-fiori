@@ -51,15 +51,14 @@ sap.ui.define([
         updateBreadcrumb: function () {
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
-            var cvPath = oLocalDataModel.getProperty("/selectedNodeCVPath") || [];
             var aBreadcrumb = [];
-            if (oSelectedNode && oSelectedNode.CV_ID) {
+            var segments = [];
+            if (oSelectedNode && (oSelectedNode.Full_Location || oSelectedNode.Full_location || oSelectedNode.full_location || oSelectedNode.FullLocation)) {
                 var fullLocation = oSelectedNode.Full_Location || oSelectedNode.Full_location || oSelectedNode.full_location || oSelectedNode.FullLocation || "";
                 var segments = fullLocation ? fullLocation.split(" / ") : [];
-                segments.forEach(function(segment, idx) {
+                segments.forEach(function(segment) {
                     aBreadcrumb.push({
-                        name: segment,
-                        CV_ID: cvPath[idx] || null
+                        name: segment
                     });
                 });
             }
@@ -70,110 +69,112 @@ sap.ui.define([
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
             var oData = oContext.getObject();
             var oLocalDataModel = this.getLocalDataModel();
-            var cvPath = oLocalDataModel.getProperty("/selectedNodeCVPath") || [];
-            // Find the index of the clicked breadcrumb
+            var nodeInfoArr = oLocalDataModel.getProperty("/nodeInfoArray") || [];
             var oBreadcrumbs = oLocalDataModel.getProperty("/breadcrumb") || [];
+            // Find the index of the clicked breadcrumb
             var idx = oBreadcrumbs.findIndex(function(b) { return b.name === oData.name; });
-            var targetCV_ID = cvPath[idx];
-            if (!targetCV_ID) {
-                return;
-            }
-            var allNodes = oLocalDataModel.getProperty("/allNodes") || [];
-            var oNode = allNodes.find(function(n) { return n.CV_ID === targetCV_ID; });
-            if (!oNode || !oNode.CT_ID) {
+            // Reconstruct the full_location up to this breadcrumb
+            var pathSoFar = oBreadcrumbs.slice(0, idx + 1).map(function(b) { return b.name; }).join(" / ");
+            // Find the node by full_location
+            var oNode = nodeInfoArr.find(function(n) { 
+                var fullLocation = n.Full_Location || n.Full_location || n.full_location || n.FullLocation || "";
+                return fullLocation === pathSoFar; 
+            });
+            if (!oNode || !oNode.CV_ID || !oNode.CT_ID) {
                 return;
             }
             oLocalDataModel.setProperty("/selectedNodeData", oNode);
-            // No need to rebuild cvPath, as it is already correct for this navigation
             var sCtId = oNode.CT_ID;
-            this.setBusyOn();
+
+            this.fetchDetailTiles(sCtId, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
+
             // First service call: get TD_IDs by CT_ID
-            $.ajax({
-                "url": "/bo/Info_Def/",
-                "method": "GET",
-                "dataType": "json",
-                "headers": {
-                    "X-NEXUS-Filter": '{"where":[{"field":"CT_ID","method":"eq","value":"' + sCtId + '"}]}'
-                },
-                "data": {
-                    "hash": this.getLocalDataModel().getProperty("/HashToken")
-                },
-                "success": function (response) {
-                    var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-                    var aTdIds = aRows.map(function (row) {
-                        return row.TD_ID;
-                    }).filter(function (id) {
-                        return id !== undefined && id !== null;
-                    });
-                    if (aTdIds.length === 0) {
-                        oLocalDataModel.setProperty("/detailTiles", []);
-                        oLocalDataModel.setProperty("/detailTileGroups", []);
-                        this.setBusyOff();
-                        return;
-                    }
-                    // Second service call: get table definitions by TD_IDs
-                    $.ajax({
-                        "url": "/bo/Table_Def/",
-                        "method": "GET",
-                        "dataType": "json",
-                        "headers": {
-                            "X-NEXUS-Filter": '{"where":[{"field":"TD_ID","method":"in","items":[' + aTdIds.join(",") + ']}]}'
-                        },
-                        "data": {
-                            "hash": this.getLocalDataModel().getProperty("/HashToken")
-                        },
-                        "success": function (response2) {
-                            var iconList = [
-                                "sap-icon://home",
-                                "sap-icon://account",
-                                "sap-icon://employee",
-                                "sap-icon://settings",
-                                "sap-icon://document",
-                                "sap-icon://calendar",
-                                "sap-icon://customer",
-                                "sap-icon://task",
-                                "sap-icon://attachment",
-                                "sap-icon://search",
-                                "sap-icon://activities",
-                                "sap-icon://activity-items"
-                            ];
-                            var tdIdToIcon = {};
-                            aTdIds.forEach(function (tdId, idx) {
-                                tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
-                            });
-                            var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
-                                tile.icon = tdIdToIcon[tile.TD_ID] || "sap-icon://hint";
-                                return tile;
-                            });
-                            var oCategoryMap = {};
-                            aTiles.forEach(function (oTile) {
-                                var sCategory = oTile.Category || oTile.category || "Uncategorized";
-                                if (!oCategoryMap[sCategory]) {
-                                    oCategoryMap[sCategory] = [];
-                                }
-                                oCategoryMap[sCategory].push(oTile);
-                            });
-                            var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
-                                return {
-                                    Category: sCategory,
-                                    tiles: oCategoryMap[sCategory]
-                                };
-                            });
-                            oLocalDataModel.setProperty("/detailTiles", aTiles);
-                            oLocalDataModel.setProperty("/detailTileGroups", aTileGroups);
-                            this.setBusyOff();
-                        }.bind(this),
-                        "error": function () {
-                            MessageToast.show("Error while fetching table definitions");
-                            this.setBusyOff();
-                        }.bind(this)
-                    });
-                }.bind(this),
-                "error": function () {
-                    MessageToast.show("Error while fetching info definitions");
-                    this.setBusyOff();
-                }.bind(this)
-            });
+            // $.ajax({
+            //     "url": "/bo/Info_Def/",
+            //     "method": "GET",
+            //     "dataType": "json",
+            //     "headers": {
+            //         "X-NEXUS-Filter": '{"where":[{"field":"CT_ID","method":"eq","value":"' + sCtId + '"}]}'
+            //     },
+            //     "data": {
+            //         "hash": this.getLocalDataModel().getProperty("/HashToken")
+            //     },
+            //     "success": function (response) {
+            //         var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+            //         var aTdIds = aRows.map(function (row) {
+            //             return row.TD_ID;
+            //         }).filter(function (id) {
+            //             return id !== undefined && id !== null;
+            //         });
+            //         if (aTdIds.length === 0) {
+            //             oLocalDataModel.setProperty("/detailTiles", []);
+            //             oLocalDataModel.setProperty("/detailTileGroups", []);
+            //             this.setBusyOff();
+            //             return;
+            //         }
+            //         // Second service call: get table definitions by TD_IDs
+            //         $.ajax({
+            //             "url": "/bo/Table_Def/",
+            //             "method": "GET",
+            //             "dataType": "json",
+            //             "headers": {
+            //                 "X-NEXUS-Filter": '{"where":[{"field":"TD_ID","method":"in","items":[' + aTdIds.join(",") + ']}]}'
+            //             },
+            //             "data": {
+            //                 "hash": this.getLocalDataModel().getProperty("/HashToken")
+            //             },
+            //             "success": function (response2) {
+            //                 var iconList = [
+            //                     "sap-icon://home",
+            //                     "sap-icon://account",
+            //                     "sap-icon://employee",
+            //                     "sap-icon://settings",
+            //                     "sap-icon://document",
+            //                     "sap-icon://calendar",
+            //                     "sap-icon://customer",
+            //                     "sap-icon://task",
+            //                     "sap-icon://attachment",
+            //                     "sap-icon://search",
+            //                     "sap-icon://activities",
+            //                     "sap-icon://activity-items"
+            //                 ];
+            //                 var tdIdToIcon = {};
+            //                 aTdIds.forEach(function (tdId, idx) {
+            //                     tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
+            //                 });
+            //                 var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
+            //                     tile.icon = tdIdToIcon[tile.TD_ID] || "sap-icon://hint";
+            //                     return tile;
+            //                 });
+            //                 var oCategoryMap = {};
+            //                 aTiles.forEach(function (oTile) {
+            //                     var sCategory = oTile.Category || oTile.category || "Uncategorized";
+            //                     if (!oCategoryMap[sCategory]) {
+            //                         oCategoryMap[sCategory] = [];
+            //                     }
+            //                     oCategoryMap[sCategory].push(oTile);
+            //                 });
+            //                 var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
+            //                     return {
+            //                         Category: sCategory,
+            //                         tiles: oCategoryMap[sCategory]
+            //                     };
+            //                 });
+            //                 oLocalDataModel.setProperty("/detailTiles", aTiles);
+            //                 oLocalDataModel.setProperty("/detailTileGroups", aTileGroups);
+            //                 this.setBusyOff();
+            //             }.bind(this),
+            //             "error": function () {
+            //                 MessageToast.show("Error while fetching table definitions");
+            //                 this.setBusyOff();
+            //             }.bind(this)
+            //         });
+            //     }.bind(this),
+            //     "error": function () {
+            //         MessageToast.show("Error while fetching info definitions");
+            //         this.setBusyOff();
+            //     }.bind(this)
+            // });
         },
         onTilePress: function (oEvent) {
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
