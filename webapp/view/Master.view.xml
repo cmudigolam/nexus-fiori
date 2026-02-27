@@ -62,7 +62,10 @@
                     <tree:Column id="colCategories">
                         <Label id="lblCategories" text="{i18n>lblAssetName}"/>
                         <tree:template>
-                            <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
+                            <HBox>
+                                <core:Icon src="{LocalDataModel>icon}" size="1.2rem" color="#427cac" class="sapUiTinyMarginEnd"/>
+                                <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
+                            </HBox>
                         </tree:template>
                     </tree:Column>
                     <tree:Column id="colAssetType">

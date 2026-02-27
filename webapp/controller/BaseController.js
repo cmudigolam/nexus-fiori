@@ -78,6 +78,7 @@ sap.ui.define([
         fetchDetailTiles: function (sCtId, sCompoonentID, hash) {
             this.setBusyOn();
             var oLocalDataModel = this.getLocalDataModel();
+            var iconList = this.getSapIcons();
             $.ajax({
                 url: "/bo/Info_Def/",
                 method: "GET",
@@ -124,20 +125,6 @@ sap.ui.define([
                             hash: hash
                         },
                         success: function (response2) {
-                            var iconList = [
-                                "sap-icon://home",
-                                "sap-icon://account",
-                                "sap-icon://employee",
-                                "sap-icon://settings",
-                                "sap-icon://document",
-                                "sap-icon://calendar",
-                                "sap-icon://customer",
-                                "sap-icon://task",
-                                "sap-icon://attachment",
-                                "sap-icon://search",
-                                "sap-icon://activities",
-                                "sap-icon://activity-items"
-                            ];
                             var tdIdToIcon = {};
                             aTdIds.forEach(function (tdId, idx) {
                                 tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
@@ -190,7 +177,82 @@ sap.ui.define([
                     debugger
                 }.bind(this)
             });
+        },
+        getSapIcons: function () {
+            return [
+                "sap-icon://checklist",
+                "sap-icon://detail-more",
+                "sap-icon://checklist-item",
+                "sap-icon://cart",
+                "sap-icon://donut-chart",
+                "sap-icon://group-2",
+                "sap-icon://horizontal-bar-chart",
+                "sap-icon://line-chart",
+                "sap-icon://multi-select",
+                "sap-icon://multiselect-all",
+                "sap-icon://pie-chart",
+                "sap-icon://tree",
+                "sap-icon://trip-report",
+                "sap-icon://mirrored-task-circle-2",
+                "sap-icon://appear-offline",
+                "sap-icon://arrow-down",
+                "sap-icon://customer",
+                "sap-icon://lead-outdated",
+                "sap-icon://sys-help",
+                "sap-icon://customer-financial-fact-sheet",
+                "sap-icon://customer-history",
+                "sap-icon://customer-order-entry",
+                "sap-icon://e-care",
+                "sap-icon://employee-lookup",
+                "sap-icon://group",
+                "sap-icon://person-placeholder",
+                "sap-icon://private",
+                "sap-icon://role",
+                "sap-icon://open-folder",
+                "sap-icon://permission",
+                "sap-icon://popup-window",
+                "sap-icon://key-user-settings",
+                "sap-icon://card",
+                "sap-icon://user-settings",
+                "sap-icon://decline",
+                "sap-icon://message-success",
+                "sap-icon://message-error",
+                "sap-icon://message-warning",
+                "sap-icon://message-information",
+                "sap-icon://locked",
+                "sap-icon://unlocked",
+                "sap-icon://key",
+                "sap-icon://chain-link",
+                "sap-icon://link",
+                "sap-icon://chain",
+                "sap-icon://paper-plane",
+                "sap-icon://email",
+                "sap-icon://phone",
+                "sap-icon://iphone",
+                "sap-icon://ipad",
+                "sap-icon://desktop",
+                "sap-icon://laptop",
+                "sap-icon://display",
+                "sap-icon://save",
+                "sap-icon://download",
+                "sap-icon://upload",
+                "sap-icon://cloud",
+                "sap-icon://cloud-upload",
+                "sap-icon://cloud-download",
+                "sap-icon://database",
+                "sap-icon://table-view",
+                "sap-icon://list",
+                "sap-icon://grid",
+                "sap-icon://menu",
+                "sap-icon://menu2",
+                "sap-icon://menu3",
+                "sap-icon://menu4",
+                "sap-icon://menu5",
+                "sap-icon://menu6",
+                "sap-icon://menu7",
+                "sap-icon://menu8",
+                "sap-icon://menu9"
+            ];
         }
-
     });
 });

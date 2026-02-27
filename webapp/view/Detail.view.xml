@@ -24,36 +24,67 @@
             </uxap:ObjectPageDynamicHeaderTitle>
         </uxap:headerTitle>
         <uxap:sections>
-            <uxap:ObjectPageSection ><!--title="Data Tables"-->
+            <uxap:ObjectPageSection title="Dynamic Tiles">
                 <uxap:subSections>
                     <uxap:ObjectPageSubSection title="Available AIG's">
                         <uxap:blocks>
-                        <VBox items="{LocalDataModel>/detailTileGroups}">
-                            <VBox class="sapUiSmallMarginBottom">
-                                <Title text="{LocalDataModel>Category}" level="H5" class="sapUiTinyMarginBottom" />
-                                <FlexBox class="assetTileGrid" wrap="Wrap" items="{LocalDataModel>tiles}" backgroundDesign="Solid">
-                                    <VBox class="assetTileWrapper">
-                                        <GenericTile
-                                            header="{LocalDataModel>Name}"
-                                            subheader="{LocalDataModel>Description}"
-                                            class="assetDetailTile"
-                                            press="onTilePress">
-                                            <TileContent>
-                                                <ImageContent src="{LocalDataModel>icon}" />
-                                            </TileContent>
-                                        </GenericTile>
-                                        <core:Icon visible="false" src="sap-icon://action" class="assetTileShareIcon" press="onTileSharePress" tooltip="{i18n>tooltipShareNavigate}" />
-                                    </VBox>
-                                </FlexBox>
+                            <VBox items="{LocalDataModel>/detailTileGroups}">
+                                <VBox class="sapUiSmallMarginBottom">
+                                    <Title text="{LocalDataModel>Category}" level="H5" class="sapUiTinyMarginBottom" />
+                                    <FlexBox class="assetTileGrid" wrap="Wrap" items="{LocalDataModel>tiles}" backgroundDesign="Solid">
+                                        <VBox class="assetTileWrapper">
+                                            <GenericTile
+                                                header="{LocalDataModel>Name}"
+                                                subheader="{LocalDataModel>Description}"
+                                                class="assetDetailTile"
+                                                press="onTilePress">
+                                                <TileContent>
+                                                    <ImageContent src="{LocalDataModel>icon}" />
+                                                </TileContent>
+                                            </GenericTile>
+                                            <core:Icon visible="false" src="sap-icon://action" class="assetTileShareIcon" press="onTileSharePress" tooltip="{i18n>tooltipShareNavigate}" />
+                                        </VBox>
+                                    </FlexBox>
+                                </VBox>
                             </VBox>
-                        </VBox>
                         </uxap:blocks>
                     </uxap:ObjectPageSubSection>
-                    <uxap:ObjectPageSubSection title="Static Tiles ">
+                </uxap:subSections>
+            </uxap:ObjectPageSection>
+            <uxap:ObjectPageSection title="Static Tiles">
+                <uxap:subSections>
+                    <uxap:ObjectPageSubSection title="Static Tiles">
                         <uxap:blocks>
-                        <VBox >
-                            
-                        </VBox>
+                            <FlexBox class="assetTileGrid" wrap="Wrap" justifyContent="Start" alignItems="Start">
+                                <VBox class="assetTileWrapper">
+                                    <GenericTile header="{i18n>lblAssetHealthInfo}" class="assetDetailTile" press="onStaticTilePress">
+                                        <TileContent>
+                                            <ImageContent src="sap-icon://accidental-leave" />
+                                        </TileContent>
+                                    </GenericTile>
+                                </VBox>
+                                <VBox class="assetTileWrapper">
+                                    <GenericTile header="{i18n>lblRBI}" class="assetDetailTile" press="onStaticTilePress">
+                                        <TileContent>
+                                            <ImageContent src="sap-icon://pie-chart" />
+                                        </TileContent>
+                                    </GenericTile>
+                                </VBox>
+                                <VBox class="assetTileWrapper">
+                                    <GenericTile header="{i18n>lblInspectionManager}" class="assetDetailTile" press="onStaticTilePress">
+                                        <TileContent>
+                                            <ImageContent src="sap-icon://key-user-settings" />
+                                        </TileContent>
+                                    </GenericTile>
+                                </VBox>
+                                <VBox class="assetTileWrapper">
+                                    <GenericTile header="{i18n>lblAnomalyWorkflows}" class="assetDetailTile" press="onStaticTilePress">
+                                        <TileContent>
+                                            <ImageContent src="sap-icon://away" />
+                                        </TileContent>
+                                    </GenericTile>
+                                </VBox>
+                            </FlexBox>
                         </uxap:blocks>
                     </uxap:ObjectPageSubSection>
                 </uxap:subSections>

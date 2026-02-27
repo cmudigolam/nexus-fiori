@@ -114,16 +114,19 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                    var aIcons = this.getSapIcons();
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
                         var sCtId = oRow.CT_ID || "";
                         var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
+                        var sIcon = aIcons.length > 0 ? aIcons[Math.floor(Math.random() * aIcons.length)] : "sap-icon://hint";
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
+                            icon: sIcon,
                             rows: aChildRows
                         });
                     }.bind(this));
@@ -216,16 +219,19 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                    var aIcons = this.getSapIcons();
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
                         var sCtId = oRow.CT_ID || "";
                         var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
+                        var sIcon = aIcons.length > 0 ? aIcons[Math.floor(Math.random() * aIcons.length)] : "sap-icon://hint";
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
+                            icon: sIcon,
                             rows: aChildRows
                         });
                     }.bind(this));
