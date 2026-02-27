@@ -49,7 +49,7 @@
                         </VBox>
                         </uxap:blocks>
                     </uxap:ObjectPageSubSection>
-                    <uxap:ObjectPageSubSection title="Static Tiles">
+                    <uxap:ObjectPageSubSection title="Static Tiles ">
                         <uxap:blocks>
                         <VBox >
                             
