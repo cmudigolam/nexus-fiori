@@ -11,15 +11,16 @@ sap.ui.define([
     "sap/m/ComboBox",
     "sap/m/VBox",
     "sap/ui/layout/form/SimpleForm",
-    "sap/ui/core/Item"
-], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, ComboBox, VBox, SimpleForm, Item) => {
+    "sap/ui/core/Item",
+    "sap/m/MessageBox"
+], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, ComboBox, VBox, SimpleForm, Item, MessageBox) => {
     "use strict";
 
     return BaseController.extend("com.nexus.asset.controller.Detail", {
         onInit() {
             var oExitButton = this.getView().byId("exitFullScreenBtnMid"),
                 oEnterButton = this.getView().byId("enterFullScreenBtnMid");
-            this.getLocalDataModel().setProperty("/shareUrl", "Share / Navigate");
+            this.getLocalDataModel().setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
             var oRouter = this.getRouter();
             if (oRouter) {
                 oRouter.getRoute("Detail").attachPatternMatched(this.onRouteMatched, this);
@@ -44,7 +45,7 @@ sap.ui.define([
             if (oSelectedNode && oSelectedNode.CV_ID) {
                 oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.CV_ID);
             } else {
-                oLocalDataModel.setProperty("/shareUrl", "Share / Navigate");
+                oLocalDataModel.setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
             }
         },
 
@@ -179,13 +180,13 @@ sap.ui.define([
         onTilePress: function (oEvent) {
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
             if (!oContext) {
-                MessageToast.show("No tile context found");
+                MessageToast.show(this.getResourceBundle().getText("msgNoTileContext"));
                 return;
             }
 
             var sTableName = oContext.getProperty("Table_Name");
             if (!sTableName) {
-                MessageToast.show("Table name is missing");
+                MessageToast.show(this.getResourceBundle().getText("msgTableNameMissing"));
                 return;
             }
 
@@ -208,7 +209,7 @@ sap.ui.define([
                         this.setBusyOff();
                     }.bind(this),
                     "error": function () {
-                        MessageToast.show("Error while fetching table data");
+                        MessageToast.show(this.getResourceBundle().getText("msgErrorFetchingTableData"));
                         this.setBusyOff();
                     }.bind(this)
                 });
@@ -222,12 +223,12 @@ sap.ui.define([
             this.getoHashToken().done(function (oResult) {
                 var sFetchedHash = oResult && oResult.hash;
                 if (!sFetchedHash) {
-                    MessageToast.show("Unable to fetch hash token");
+                    MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
                     return;
                 }
                 fnCallTableApi(sFetchedHash);
             }).fail(function () {
-                MessageToast.show("Unable to fetch hash token");
+                MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
             });
         },
 
@@ -252,7 +253,7 @@ sap.ui.define([
             }
 
             if (!aFields.length) {
-                MessageToast.show("No fields available");
+                MessageToast.show(this.getResourceBundle().getText("msgNoFieldsAvailable"));
                 return;
             }
 
@@ -358,7 +359,7 @@ sap.ui.define([
                     // No fields for this category
                     aFormContent.push(
                         new sap.m.Text({
-                            text: "No fields available for this category",
+                            text: self.getResourceBundle().getText("msgNoFieldsForCategory"),
                             class: "sapUiMediumMargin"
                         })
                     );
@@ -461,7 +462,7 @@ sap.ui.define([
                         });
                     },
                     "error": function () {
-                        MessageToast.show("Error loading lookup items");
+                        MessageToast.show(self.getResourceBundle().getText("msgErrorLoadingLookupItems"));
                     }
                 });
             };
@@ -499,7 +500,7 @@ sap.ui.define([
             var self = this;
 
             if (!sComponentId) {
-                MessageToast.show("No component selected");
+                MessageToast.show(this.getResourceBundle().getText("msgNoComponentSelected"));
                 return;
             }
 
@@ -531,7 +532,7 @@ sap.ui.define([
                         }
                     },
                     "error": function () {
-                        MessageToast.show("Error while fetching form data");
+                        MessageToast.show(self.getResourceBundle().getText("msgErrorFetchingFormData"));
                         self.setBusyOff();
                     }
                 });
@@ -545,12 +546,12 @@ sap.ui.define([
             this.getoHashToken().done(function (oResult) {
                 var sFetchedHash = oResult && oResult.hash;
                 if (!sFetchedHash) {
-                    MessageToast.show("Unable to fetch hash token");
+                    MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
                     return;
                 }
                 fnFetchData(sFetchedHash);
             }).fail(function () {
-                MessageToast.show("Unable to fetch hash token");
+                MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
             });
         },
 
@@ -662,15 +663,145 @@ sap.ui.define([
 
         onFormDialogClose: function () {
             if (this._oFormDialog) {
+                this._clearFieldValidationErrors();
                 this._oFormDialog.close();
             }
         },
 
-        onFormSave: function () {
-            MessageToast.show("Form data saved successfully!");
-            if (this._oFormDialog) {
-                this._oFormDialog.close();
+        _showFieldValidationErrors: function (aInvalidFields) {
+            if (!this._fieldControlMap || !aInvalidFields) {
+                return;
             }
+            aInvalidFields.forEach(function (oInvalid) {
+                var oControl = this._fieldControlMap[oInvalid.field];
+                if (oControl) {
+                    if (oControl.setValueState) {
+                        oControl.setValueState("Error");
+                        oControl.setValueStateText(oInvalid.message || this.getResourceBundle().getText("msgFieldRequired"));
+                    }
+                }
+            }.bind(this));
+        },
+
+        _clearFieldValidationErrors: function () {
+            if (!this._fieldControlMap) {
+                return;
+            }
+            var oMap = this._fieldControlMap;
+            Object.keys(oMap).forEach(function (sKey) {
+                var oControl = oMap[sKey];
+                if (oControl && oControl.setValueState) {
+                    oControl.setValueState("None");
+                    oControl.setValueStateText("");
+                }
+            });
+        },
+
+        onFormSave: function () {
+            var oLocalDataModel = this.getLocalDataModel();
+            var sTableName = oLocalDataModel.getProperty("/selectedTableName");
+            var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
+            var sHash = oLocalDataModel.getProperty("/HashToken");
+            var self = this;
+
+            if (!sTableName || !sComponentId) {
+                MessageToast.show(this.getResourceBundle().getText("msgMissingTableOrComponent"));
+                return;
+            }
+
+            // Collect form field values from _fieldControlMap (only non-empty values)
+            var oPayload = {};
+            if (this._fieldControlMap) {
+                Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
+                    var oControl = self._fieldControlMap[sFieldKey];
+                    var vValue;
+                    if (oControl.isA("sap.m.Input")) {
+                        vValue = oControl.getValue();
+                        if (vValue !== "" && vValue !== undefined) {
+                            oPayload[sFieldKey] = vValue;
+                        }
+                    } else if (oControl.isA("sap.m.DatePicker")) {
+                        // Use getDateValue() to get the JS Date, then format to yyyy-MM-dd
+                        var oDate = oControl.getDateValue();
+                        if (oDate) {
+                            var sYear = oDate.getFullYear();
+                            var sMonth = String(oDate.getMonth() + 1).padStart(2, "0");
+                            var sDay = String(oDate.getDate()).padStart(2, "0");
+                            oPayload[sFieldKey] = sYear + "-" + sMonth + "-" + sDay;
+                        }
+                    } else if (oControl.isA("sap.m.CheckBox")) {
+                        oPayload[sFieldKey] = oControl.getSelected();
+                    } else if (oControl.isA("sap.m.ComboBox")) {
+                        vValue = oControl.getSelectedKey() || oControl.getValue();
+                        if (vValue !== "" && vValue !== undefined) {
+                            oPayload[sFieldKey] = vValue;
+                        }
+                    }
+                });
+            }
+
+            console.log("Save payload:", JSON.stringify(oPayload));
+
+            // Clear previous validation errors
+            self._clearFieldValidationErrors();
+            self.setBusyOn();
+            var fnPostData = function (sResolvedHash) {
+                self.setBusyOn();
+                $.ajax({
+                    "url": "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
+                    "method": "POST",
+                    "contentType": "application/json",
+                    "dataType": "json",
+                    "data": JSON.stringify(oPayload),
+                    "success": function () {
+                        MessageBox.success(self.getResourceBundle().getText("msgFormSaveSuccess"), {
+                            onClose: function () {
+                                if (self._oFormDialog) {
+                                    self._oFormDialog.close();
+                                }
+                            }
+                        });
+                        self.setBusyOff();
+                        if (self._oFormDialog) {
+                            self._oFormDialog.close();
+                        }
+                    },
+                    "error": function (jqXHR) {
+                        var sMsg = self.getResourceBundle().getText("msgErrorSavingFormData");
+                        try {
+                            var oErr = JSON.parse(jqXHR.responseText);
+                            // Handle structured validation errors
+                            if (oErr.invalidFields && Array.isArray(oErr.invalidFields) && oErr.invalidFields.length > 0) {
+                                self._showFieldValidationErrors(oErr.invalidFields);
+                                sMsg = self.getResourceBundle().getText("msgFieldsRequireAttention", [oErr.invalidFields.length]);
+                            } else {
+                                sMsg = oErr.message || oErr.error || oErr.Message || sMsg;
+                            }
+                        } catch (e) {
+                            sMsg = jqXHR.responseText || sMsg;
+                        }
+                        MessageToast.show(sMsg);
+                        console.error("Save error:", jqXHR.status, jqXHR.responseText);
+                        self.setBusyOff();
+                    }
+                });
+            };
+
+            if (sHash) {
+                fnPostData(sHash);
+                return;
+            }
+
+            this.getoHashToken().done(function (oResult) {
+                var sFetchedHash = oResult && oResult.hash;
+                if (!sFetchedHash) {
+                    MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
+                    return;
+                }
+                fnPostData(sFetchedHash);
+            }).fail(function () {
+                MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
+            });
         },
 
 
@@ -680,7 +811,7 @@ sap.ui.define([
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
             if (!oSelectedNode || !oSelectedNode.CV_ID) {
-                MessageToast.show("No asset selected");
+                MessageToast.show(this.getResourceBundle().getText("msgNoAssetSelected"));
                 return;
             }
             var sUrl = "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + encodeURIComponent(oSelectedNode.CV_ID);
@@ -688,6 +819,7 @@ sap.ui.define([
         },
 
         onTileSharePress: function (oEvent) {
+            var oBundle = this.getResourceBundle();
             var oContext = oEvent.getSource().getParent().getItems()[0].getBindingContext("LocalDataModel");
             if (oContext) {
                 var sTileName = oContext.getProperty("Name");
@@ -695,12 +827,12 @@ sap.ui.define([
                 var sShareUrl = sUrl + (sUrl.indexOf("?") > -1 ? "&" : "?") + "tile=" + encodeURIComponent(sTileName);
                 if (navigator.clipboard) {
                     navigator.clipboard.writeText(sShareUrl).then(function () {
-                        MessageToast.show("Tile link copied to clipboard");
+                        MessageToast.show(oBundle.getText("msgTileLinkCopied"));
                     }, function () {
-                        MessageToast.show("Failed to copy link");
+                        MessageToast.show(oBundle.getText("msgFailedToCopyLink"));
                     });
                 } else {
-                    MessageToast.show("Clipboard not available");
+                    MessageToast.show(oBundle.getText("msgClipboardNotAvailable"));
                 }
             }
         },

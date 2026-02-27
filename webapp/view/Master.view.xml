@@ -7,7 +7,7 @@
         <f:title>
             <f:DynamicPageTitle id="dynamicPageTitle">
                 <f:heading>
-                    <Title id="pageTitle" text="Asset Hierarchy" />
+                    <Title id="pageTitle" text="{i18n>lblAssetHierarchy}" />
                 </f:heading>
                 <f:actions>
                     <!--actions-->
@@ -21,7 +21,7 @@
                     class="assetTreeTable"
                     rows="{path:'LocalDataModel>/treeTable', parameters:{arrayNames:['rows']}}"
                     alternateRowColors="true"
-                    noData="Select an asset node to view hierarchy"
+                    noData="{i18n>msgSelectAssetToView}"
                     selectionMode="Single"
                     selectionBehavior="RowOnly"
                     rowSelectionChange="onRowSelect"
@@ -33,13 +33,13 @@
                     </tree:rowMode>
                     <tree:extension>
                         <OverflowToolbar style="Clear" class="assetMasterToolbar">
-                            <Title text="Root Asset" level="H5">
+                            <Title text="{i18n>lblRootAsset}" level="H5">
                                 <layoutData>
                                     <OverflowToolbarLayoutData priority="Low" />
                                 </layoutData>
                             </Title>
                             <ToolbarSpacer />
-                            <Label text="Asset" labelFor="assetSelector">
+                            <Label text="{i18n>lblAsset}" labelFor="assetSelector">
                                 <layoutData>
                                     <OverflowToolbarLayoutData priority="Low" />
                                 </layoutData>
@@ -47,7 +47,7 @@
                             <ComboBox
                                 id="assetSelector"
                                 width="100%"
-                                placeholder="Select asset"
+                                placeholder="{i18n>lblSelectAsset}"
                                 items="{LocalDataModel>/treeList}"
                                 selectedKey="{LocalDataModel>/selectedNode}"
                                 selectionChange="onNodeSelect">
@@ -60,13 +60,13 @@
                     </tree:extension>
                 <tree:columns>
                     <tree:Column id="colCategories">
-                        <Label id="lblCategories" text="Asset Name"/>
+                        <Label id="lblCategories" text="{i18n>lblAssetName}"/>
                         <tree:template>
                             <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
                         </tree:template>
                     </tree:Column>
                     <tree:Column id="colAssetType">
-                        <Label id="lblAssetType" text="Asset Type"/>
+                        <Label id="lblAssetType" text="{i18n>lblAssetType}"/>
                         <tree:template>
                             <Text id="txtAssetType" text="{LocalDataModel>AssetType}" />
                         </tree:template>

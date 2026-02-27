@@ -75,7 +75,7 @@ sap.ui.define([
                     this.setBusyOff();
                 }.bind(this),
                 "error": function (errorData) {
-                    MessageBox.error("Error while fetching data");
+                    MessageBox.error(this.getResourceBundle().getText("msgErrorFetchingData"));
                     this.setBusyOff();
                 }.bind(this)
             });
@@ -138,7 +138,7 @@ sap.ui.define([
                     this.setBusyOff();
                 }.bind(this),
                 "error": function (errorData) {
-                    MessageBox.error("Error while fetching data");
+                    MessageBox.error(this.getResourceBundle().getText("msgErrorFetchingData"));
                     this.setBusyOff();
                 }.bind(this)
             });
@@ -158,123 +158,27 @@ sap.ui.define([
             if (!oSelectedRow || !oSelectedRow.CT_ID) {
                 return;
             }
+
             // Update selectedNodeData to the selected row
             var oLocalDataModel = this.getLocalDataModel();
             oLocalDataModel.setProperty("/selectedNodeData", oSelectedRow);
-            
+
             var sCtId = oSelectedRow.CT_ID;
             var sCompoonentID = oSelectedRow.Component_ID;
-            oLocalDataModel.setProperty("/sCompoonentID",sCompoonentID);
+            oLocalDataModel.setProperty("/sCompoonentID", sCompoonentID);
 
             // Add selected row to nodeInfoArr if not present, remove duplicates by GUID and full_location
             this.addNodeToInfoArr(oSelectedRow);
 
+            // Update share URL in model for tooltip binding
+            if (sCompoonentID) {
+                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sCompoonentID);
+            } else {
+                oLocalDataModel.setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
+            }
+
             this.fetchDetailTiles(sCtId, sCompoonentID, this.hash);
-            // First service call: get TD_IDs by CT_ID
-            // $.ajax({
-            //     "url": "/bo/Info_Def/",
-            //     "method": "GET",
-            //     "dataType": "json",
-            //     "headers": {
-            //         "X-NEXUS-Filter": '{"where":[{"field":"CT_ID","method":"eq","value":"' + oSelectedRow.CT_ID + '"}]}'
-            //     },
-            //     "data": {
-            //         "hash": this.hash
-            //     },
-            //     "success": function (response) {
-            //         var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-            //         var aTdIds = aRows.map(function (row) {
-            //             return row.TD_ID;
-            //         }).filter(function (id) {
-            //             return id !== undefined && id !== null;
-            //         });
-            //         var oNextUIState = this.getOwnerComponent().getHelper().getNextUIState(1);
-            //         if (aTdIds.length === 0) {
-            //             this.getLocalDataModel().setProperty("/detailTiles", []);
-            //             this.getLocalDataModel().setProperty("/detailTileGroups", []);
-            //             this.setBusyOff();
-            //             this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
-            //             this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
-            //             return;
-            //         }
-
-            //         // Update share URL in model for tooltip binding
-            //         if (oLocalDataModel.getProperty("/sCompoonentID")) {
-            //             oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sCompoonentID);
-            //         } else {
-            //             oLocalDataModel.setProperty("/shareUrl", "Share / Navigate");
-            //         }
-
-            //         // Second service call: get table definitions by TD_IDs
-            //         $.ajax({
-            //             "url": "/bo/Table_Def/",
-            //             "method": "GET",
-            //             "dataType": "json",
-            //             "headers": {
-            //                 "X-NEXUS-Filter": '{"where":[{"field":"TD_ID","method":"in","items":[' + aTdIds.join(",") + ']}]}'
-            //             },
-            //             "data": {
-            //                 "hash": this.hash
-            //             },
-            //             "success": function (response2) {
-            //                 // Map TD_IDs to icons based on their order in aTdIds
-            //                 var iconList = [
-            //                     "sap-icon://home",
-            //                     "sap-icon://account",
-            //                     "sap-icon://employee",
-            //                     "sap-icon://settings",
-            //                     "sap-icon://document",
-            //                     "sap-icon://calendar",
-            //                     "sap-icon://customer",
-            //                     "sap-icon://task",
-            //                     "sap-icon://attachment",
-            //                     "sap-icon://search",
-            //                     "sap-icon://activities",
-            //                     "sap-icon://activity-items"
-            //                 ];
-            //                 var tdIdToIcon = {};
-            //                 aTdIds.forEach(function (tdId, idx) {
-            //                     tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
-            //                 });
-            //                 var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
-            //                     tile.icon = tdIdToIcon[tile.TD_ID] || "sap-icon://hint";
-            //                     return tile;
-            //                 });
-            //                 var oCategoryMap = {};
-            //                 aTiles.forEach(function (oTile) {
-            //                     var sCategory = oTile.Category || oTile.category || "Uncategorized";
-            //                     if (!oCategoryMap[sCategory]) {
-            //                         oCategoryMap[sCategory] = [];
-            //                     }
-            //                     oCategoryMap[sCategory].push(oTile);
-            //                 });
-            //                 var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
-            //                     return {
-            //                         Category: sCategory,
-            //                         tiles: oCategoryMap[sCategory]
-            //                     };
-            //                 });
-            //                 this.getLocalDataModel().setProperty("/detailTiles", aTiles);
-            //                 this.getLocalDataModel().setProperty("/detailTileGroups", aTileGroups);
-            //                 this.setBusyOff();
-            //                 this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
-            //                 this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
-            //             }.bind(this),
-            //             "error": function () {
-            //                 MessageBox.error("Error while fetching table definitions");
-            //                 this.setBusyOff();
-            //             }.bind(this)
-            //         });
-            //     }.bind(this),
-            //     "error": function () {
-            //         MessageBox.error("Error while fetching info definitions");
-            //         this.setBusyOff();
-            //     }.bind(this)
-            // });
-
-            sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
         },
-
         onToggleOpenState: function (oEvent) {
             var iRowIndex = oEvent.getParameter("rowIndex");
             var oContext = oEvent.getParameter("rowContext");
@@ -327,7 +231,7 @@ sap.ui.define([
                     this.setBusyOff();
                 }.bind(this),
                 "error": function (errorData) {
-                    MessageBox.error("Error while fetching child nodes");
+                    MessageBox.error(this.getResourceBundle().getText("msgErrorFetchingChildNodes"));
                     this.setBusyOff();
                 }.bind(this)
             });

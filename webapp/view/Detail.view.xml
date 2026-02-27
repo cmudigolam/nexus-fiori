@@ -8,25 +8,25 @@
         <uxap:headerTitle>
             <uxap:ObjectPageDynamicHeaderTitle>
                 <uxap:heading>
-                    <Title text="Asset Details" wrapping="true" />
+                    <Title text="{i18n>lblAssetDetails}" wrapping="true" />
                 </uxap:heading>
                 <uxap:expandedContent>
-                    <ObjectStatus text="{= ${LocalDataModel>/selectedNodeData/Name} || 'No asset selected'}" />
+                    <ObjectStatus text="{= ${LocalDataModel>/selectedNodeData/Name} || '${i18n>lblNoAssetSelected}'}" />
                 </uxap:expandedContent>
                 <uxap:actions>
                     <OverflowToolbarButton id="shareBtn" type="Transparent" icon="sap-icon://action" press="onSharePress" tooltip="{LocalDataModel>/shareUrl}" />
                 </uxap:actions>
                 <uxap:navigationActions>
-					<OverflowToolbarButton type="Transparent" icon="sap-icon://full-screen" press="handleFullScreen" id="enterFullScreenBtnMid" tooltip="Enter Full Screen Mode" visible="{= ${/actionButtonsInfo/midColumn/fullScreen} !== null }" />
-					<OverflowToolbarButton type="Transparent" icon="sap-icon://exit-full-screen" press="handleExitFullScreen" id="exitFullScreenBtnMid" tooltip="Exit Full Screen Mode" visible="{= ${/actionButtonsInfo/midColumn/exitFullScreen} !== null }" />
-					<OverflowToolbarButton type="Transparent" icon="sap-icon://decline" press="handleClose" tooltip="Close middle column" visible="{= ${/actionButtonsInfo/midColumn/closeColumn} !== null }" />
+					<OverflowToolbarButton type="Transparent" icon="sap-icon://full-screen" press="handleFullScreen" id="enterFullScreenBtnMid" tooltip="{i18n>tooltipEnterFullScreen}" visible="{= ${/actionButtonsInfo/midColumn/fullScreen} !== null }" />
+					<OverflowToolbarButton type="Transparent" icon="sap-icon://exit-full-screen" press="handleExitFullScreen" id="exitFullScreenBtnMid" tooltip="{i18n>tooltipExitFullScreen}" visible="{= ${/actionButtonsInfo/midColumn/exitFullScreen} !== null }" />
+					<OverflowToolbarButton type="Transparent" icon="sap-icon://decline" press="handleClose" tooltip="{i18n>tooltipCloseColumn}" visible="{= ${/actionButtonsInfo/midColumn/closeColumn} !== null }" />
                 </uxap:navigationActions>
             </uxap:ObjectPageDynamicHeaderTitle>
         </uxap:headerTitle>
         <uxap:sections>
             <uxap:ObjectPageSection ><!--title="Data Tables"-->
                 <uxap:subSections>
-                    <uxap:ObjectPageSubSection ><!--title="Available AIG's"-->
+                    <uxap:ObjectPageSubSection title="Available AIG's">
                         <uxap:blocks>
                         <VBox items="{LocalDataModel>/detailTileGroups}">
                             <VBox class="sapUiSmallMarginBottom">
@@ -42,10 +42,17 @@
                                                 <ImageContent src="{LocalDataModel>icon}" />
                                             </TileContent>
                                         </GenericTile>
-                                        <core:Icon visible="false" src="sap-icon://action" class="assetTileShareIcon" press="onTileSharePress" tooltip="Share / Navigate" />
+                                        <core:Icon visible="false" src="sap-icon://action" class="assetTileShareIcon" press="onTileSharePress" tooltip="{i18n>tooltipShareNavigate}" />
                                     </VBox>
                                 </FlexBox>
                             </VBox>
+                        </VBox>
+                        </uxap:blocks>
+                    </uxap:ObjectPageSubSection>
+                    <uxap:ObjectPageSubSection title="Static Tiles">
+                        <uxap:blocks>
+                        <VBox >
+                            
                         </VBox>
                         </uxap:blocks>
                     </uxap:ObjectPageSubSection>
@@ -55,9 +62,9 @@
         <uxap:footer>
             <OverflowToolbar visible="false">
                 <ToolbarSpacer />
-                <Button id="idEditButton"  text="Edit" press="onEditPress" />
-				<Button id="idSaveButton"  text="Save" press="onSavePress" />
-				<Button text="Re calculate" press="onRecalculatePress"/>
+                <Button id="idEditButton"  text="{i18n>btnEdit}" press="onEditPress" />
+				<Button id="idSaveButton"  text="{i18n>btnSave}" press="onSavePress" />
+				<Button text="{i18n>btnRecalculate}" press="onRecalculatePress"/>
             </OverflowToolbar>
         </uxap:footer>
     </uxap:ObjectPageLayout>

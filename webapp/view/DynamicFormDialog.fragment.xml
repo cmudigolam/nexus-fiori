@@ -11,10 +11,10 @@
             </IconTabBar>
         </content>
         <beginButton>
-            <Button text="Save" press="onFormSave" type="Emphasized" />
+            <Button text="{i18n>btnSave}" press="onFormSave" type="Emphasized" />
         </beginButton>
         <endButton>
-            <Button text="Close" press="onFormDialogClose" />
+            <Button text="{i18n>btnClose}" press="onFormDialogClose" />
         </endButton>
     </Dialog>
 </core:FragmentDefinition>
