@@ -178,6 +178,8 @@ sap.ui.define([
             }
 
             this.fetchDetailTiles(sCtId, sCompoonentID, this.hash);
+            // Publish event to update breadcrumbs in Detail controller only after row selection
+            sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
         },
         onToggleOpenState: function (oEvent) {
             var iRowIndex = oEvent.getParameter("rowIndex");
