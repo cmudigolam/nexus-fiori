@@ -42,8 +42,8 @@ sap.ui.define([
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
             // Update share URL in model for tooltip binding
-            if (oSelectedNode && oSelectedNode.CV_ID) {
-                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.CV_ID);
+            if (oSelectedNode && oSelectedNode.VN_ID) {
+                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.VN_ID);
             } else {
                 oLocalDataModel.setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
             }
@@ -196,7 +196,7 @@ sap.ui.define([
             var fnCallTableApi = function (sResolvedHash) {
                 this.setBusyOn();
                 $.ajax({
-                    "url": "/bo/" + encodeURIComponent(sTableName),
+                    "url":  "/bo/" + encodeURIComponent(sTableName),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -331,10 +331,14 @@ sap.ui.define([
 
                 if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
                     oCategorizedFields[oCategory.name].forEach(function (oField) {
+                        // Determine visibility based on formvisible property
+                        var bVisible = oField.formvisible !== false;
+
                         // Add label with comments as tooltip
                         var oLabel = new sap.m.Label({
                             text: oField.name || oField.fieldName,
-                            required: oField.required || false
+                            required: oField.required || false,
+                            visible: bVisible
                         });
                         if (oField.comments) {
                             oLabel.setTooltip(oField.comments);
@@ -348,6 +352,7 @@ sap.ui.define([
 
                         // Add input field based on field type
                         var oInput = self.createFieldControl(oField);
+                        oInput.setVisible(bVisible);
                         // Store reference for later data population
                         var sFieldKey = oField.fieldName || oField.name;
                         if (sFieldKey) {
@@ -376,6 +381,7 @@ sap.ui.define([
                 var oScrollContainer = new sap.m.ScrollContainer({
                     vertical: true,
                     horizontal: true,
+                    height: "100%",
                     content: [oSimpleForm]
                 });
 
@@ -806,6 +812,18 @@ sap.ui.define([
 
 
 
+
+        onStaticTilePress: function (oEvent) {
+            var oLocalDataModel = this.getLocalDataModel();
+            var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
+            if (!oSelectedNode || !oSelectedNode.VN_ID) {
+                MessageToast.show(this.getResourceBundle().getText("msgNoAssetSelected"));
+                return;
+            }
+            var sDashboardId = oEvent.getSource().data("dashboardId");
+            var sUrl = "https://trial.nexusic.com/?navigateTo=Asset&searchKey=VN_ID&searchValue=" + encodeURIComponent(oSelectedNode.VN_ID) + "&tab=Dashboard&dasboardId=" + sDashboardId;
+            window.open(sUrl, "_blank");
+        },
 
         onSharePress: function () {
             var oLocalDataModel = this.getLocalDataModel();

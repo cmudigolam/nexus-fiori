@@ -19,7 +19,7 @@ sap.ui.define([
                 this.hash = result.hash;
                 // Fetch Comp_Type to build CT_ID -> Name map
                 $.ajax({
-                    "url": "/bo/Comp_Type/",
+                    "url":  "/bo/Comp_Type/",
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -44,7 +44,7 @@ sap.ui.define([
 
         _loadCompView: function () {
             $.ajax({
-                "url": "/bo/Comp_view/",
+                "url":  "/bo/Comp_view/",
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -103,7 +103,7 @@ sap.ui.define([
             this.setBusyOn();
             // roote api call
             $.ajax({
-                "url": "/bo/View_Node/",
+                "url":  "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -174,8 +174,9 @@ sap.ui.define([
             this.addNodeToInfoArr(oSelectedRow);
 
             // Update share URL in model for tooltip binding
-            if (sCompoonentID) {
-                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sCompoonentID);
+            var sVnId = oSelectedRow.VN_ID;
+            if (sVnId) {
+                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sVnId);
             } else {
                 oLocalDataModel.setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
             }
@@ -208,7 +209,7 @@ sap.ui.define([
 
             this.setBusyOn();
             $.ajax({
-                "url": "/bo/View_Node/",
+                "url":  "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {

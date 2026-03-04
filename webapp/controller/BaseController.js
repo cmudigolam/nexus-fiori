@@ -80,7 +80,7 @@ sap.ui.define([
             var oLocalDataModel = this.getLocalDataModel();
             var iconList = this.getSapIcons();
             $.ajax({
-                url: "/bo/Info_Def/",
+                url:  "/bo/Info_Def/",
                 method: "GET",
                 dataType: "json",
                 headers: {
@@ -107,15 +107,17 @@ sap.ui.define([
                     }
 
                     // Update share URL in model for tooltip binding
-                    if (oLocalDataModel.getProperty("/sCompoonentID")) {
-                        oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sCompoonentID);
+                    var oSelectedNodeData = oLocalDataModel.getProperty("/selectedNodeData");
+                    var sVnId = oSelectedNodeData && oSelectedNodeData.VN_ID;
+                    if (sVnId) {
+                        oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sVnId);
                     } else {
                         oLocalDataModel.setProperty("/shareUrl", "Share / Navigate");
                     }
 
                     // Second service call: get table definitions by TD_IDs
                     $.ajax({
-                        url: "/bo/Table_Def/",
+                        url:  "/bo/Table_Def/",
                         method: "GET",
                         dataType: "json",
                         headers: {
@@ -167,8 +169,8 @@ sap.ui.define([
         },
         getoHashToken: function () {
             return $.ajax({
-                //this.getCompleteURL() + 
-                "url": "/security/login",
+                // 
+                "url":  "/security/login",
                 "method": "GET",
                 "success": function (result, xhr, successData) {
                     this.getLocalDataModel().setProperty("/HashToken", result.hash);

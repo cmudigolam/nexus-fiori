@@ -1,7 +1,7 @@
 <core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m" xmlns:f="sap.ui.layout.form">
-    <Dialog id="idDynamicFormDialog" title="{FormData>/title}" contentHeight="700px" contentWidth="900px" resizable="true">
+    <Dialog id="idDynamicFormDialog" title="{FormData>/title}" contentHeight="700px" contentWidth="900px" resizable="true" verticalScrolling="false">
         <content>
-            <IconTabBar id="idFormTabs" expandable="false">
+            <IconTabBar id="idFormTabs" expandable="false" stretchContentHeight="true">
                 <items>
                     <IconTabFilter id="idTab1" />
                     <IconTabFilter id="idTab2" />
