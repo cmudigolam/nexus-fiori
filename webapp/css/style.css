@@ -66,6 +66,15 @@
     opacity: 0.7;
 }
 
-.sapUxAPObjectPageLayout-Std-Tablet .sapUxAPObjectPageSectionHeader, html .sapUiContainer-Medium .sapUxAPObjectPageSectionHeader {
+.sapUxAPObjectPageLayout-Std-Tablet .sapUxAPObjectPageSectionHeader,
+html .sapUiContainer-Medium .sapUxAPObjectPageSectionHeader {
     display: none !important;
+}
+
+.sapUiRespGridMedia-Std-Tablet.sapUiRespGridHSpace0>.sapUiRespGridSpanM10 {
+    width: 65% !important;
+}
+
+.sapUiRespGridMedia-Std-Tablet.sapUiRespGridHSpace0>.sapUiRespGridSpanM2 {
+    width: 30% !important;
 }

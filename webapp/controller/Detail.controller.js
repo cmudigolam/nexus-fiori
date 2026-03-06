@@ -178,6 +178,7 @@ sap.ui.define([
             // });
         },
         onTilePress: function (oEvent) {
+            var self = this;
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
             if (!oContext) {
                 MessageToast.show(this.getResourceBundle().getText("msgNoTileContext"));
@@ -196,7 +197,7 @@ sap.ui.define([
             var fnCallTableApi = function (sResolvedHash) {
                 this.setBusyOn();
                 $.ajax({
-                    "url":  "/bo/" + encodeURIComponent(sTableName),
+                    "url": "/bo/" + encodeURIComponent(sTableName),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -870,8 +871,6 @@ sap.ui.define([
         handleClose: function () {
             var sNextLayout = this.getOwnerComponent().getModel().getProperty("/actionButtonsInfo/midColumn/closeColumn");
             this.getRouter().navTo("Master", { layout: sNextLayout });
-
-
         }
     });
 });

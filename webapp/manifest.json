@@ -14,6 +14,20 @@
       "id": "@sap/generator-fiori:basic",
       "version": "1.20.2",
       "toolsId": "74969f28-50cc-48a1-a6a7-24623165d9ad"
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "AssetManager-manage": {
+          "semanticObject": "AssetManager",
+          "action": "manage",
+          "title": "Asset Manager",
+          "icon": "sap-icon://tree",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      }
     }
   },
   "sap.ui": {
@@ -31,6 +45,10 @@
       "tablet": true,
       "phone": true
     }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
   },
   "sap.ui5": {
     "fullWidth": true,

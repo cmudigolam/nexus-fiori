@@ -15,6 +15,7 @@ sap.ui.define([
             this.setBusyOn();
             this.getLocalDataModel().setProperty("/treeTable", []);
             this._compTypeMap = {};
+            var self = this;
             this.getoHashToken().done(function (result) {
                 this.hash = result.hash;
                 // Fetch Comp_Type to build CT_ID -> Name map
@@ -43,6 +44,7 @@ sap.ui.define([
         },
 
         _loadCompView: function () {
+            var self = this;
             $.ajax({
                 "url":  "/bo/Comp_view/",
                 "method": "GET",
@@ -98,6 +100,7 @@ sap.ui.define([
             if (!oSelectedNode || !oSelectedNode.CV_ID) {
                 return;
             }
+            var self = this;
             this.getLocalDataModel().setProperty("/selectedNodeData", oSelectedNode || null);
             //this._mergeParentIfMissing(oSelectedNode);
             this.setBusyOn();
@@ -186,6 +189,7 @@ sap.ui.define([
             sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
         },
         onToggleOpenState: function (oEvent) {
+            var self = this;
             var iRowIndex = oEvent.getParameter("rowIndex");
             var oContext = oEvent.getParameter("rowContext");
             var bExpanded = oEvent.getParameter("expanded");
@@ -209,7 +213,7 @@ sap.ui.define([
 
             this.setBusyOn();
             $.ajax({
-                "url":  "/bo/View_Node/",
+                "url": "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {

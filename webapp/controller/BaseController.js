@@ -79,6 +79,7 @@ sap.ui.define([
             this.setBusyOn();
             var oLocalDataModel = this.getLocalDataModel();
             var iconList = this.getSapIcons();
+            var self = this;
             $.ajax({
                 url:  "/bo/Info_Def/",
                 method: "GET",
@@ -168,6 +169,7 @@ sap.ui.define([
             });
         },
         getoHashToken: function () {
+            var self = this;
             return $.ajax({
                 // 
                 "url":  "/security/login",
