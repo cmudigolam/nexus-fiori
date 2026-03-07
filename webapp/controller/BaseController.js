@@ -132,10 +132,14 @@ sap.ui.define([
                             aTdIds.forEach(function (tdId, idx) {
                                 tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
                             });
-                            var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
-                                tile.icon = tdIdToIcon[tile.TD_ID] || "sap-icon://hint";
-                                return tile;
-                            });
+                            var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : [])
+                                .reduce(function(aTiles, oTile) {
+                                    if (oTile.DT_ID === 1) {
+                                        oTile.icon = tdIdToIcon[oTile.TD_ID] || "sap-icon://hint";
+                                        aTiles.push(oTile);
+                                    }
+                                    return aTiles;
+                                }, []);
                             var oCategoryMap = {};
                             aTiles.forEach(function (oTile) {
                                 var sCategory = oTile.Category || oTile.category || "Uncategorized";
