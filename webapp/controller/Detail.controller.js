@@ -332,8 +332,8 @@ sap.ui.define([
 
                 if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
                     oCategorizedFields[oCategory.name].forEach(function (oField) {
-                        // Determine visibility based on formvisible property
-                        var bVisible = oField.formvisible !== false;
+                        // Determine visibility based on formVisible property from API metadata
+                        var bVisible = oField.formVisible !== false;
 
                         // Add label with comments as tooltip
                         var oLabel = new sap.m.Label({
