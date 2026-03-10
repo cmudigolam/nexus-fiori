@@ -4,20 +4,20 @@
   "routes": [
     {
       "source": "^/security",
-      "destination": "Nexus",
+      "destination": "NexusQA",
       "authenticationType": "none",
       "csrfProtection": false
     },
     {
       "source": "^/bo",
-      "destination": "Nexus",
+      "destination": "NexusQA",
       "authenticationType": "none",
       "csrfProtection": false
     },
     {
       "source": "^<apply-service-segment-path>/(.*)$",
       "target": "<apply-service-segment-path>/$1",
-      "destination": "Nexus",
+      "destination": "NexusQA",
       "authenticationType": "xsuaa",
       "csrfProtection": false
     },

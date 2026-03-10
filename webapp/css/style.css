@@ -78,3 +78,15 @@ html .sapUiContainer-Medium .sapUxAPObjectPageSectionHeader {
 .sapUiRespGridMedia-Std-Tablet.sapUiRespGridHSpace0>.sapUiRespGridSpanM2 {
     width: 30% !important;
 }
+
+/* Mandatory field validation styling */
+.mandatoryFieldError {
+    border-color: #e63329 !important;
+    border-width: 2px !important;
+    box-shadow: 0 0 0 1px #e63329 !important;
+}
+
+.mandatoryFieldError:focus {
+    border-color: #e63329 !important;
+    box-shadow: 0 0 0 2px #e63329 !important;
+}

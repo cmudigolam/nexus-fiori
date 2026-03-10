@@ -38,9 +38,6 @@
                                                 subheader="{LocalDataModel>Description}"
                                                 class="assetDetailTile"
                                                 press="onTilePress">
-                                                <TileContent>
-                                                    <ImageContent src="{LocalDataModel>icon}" />
-                                                </TileContent>
                                             </GenericTile>
                                             <core:Icon visible="false" src="sap-icon://action" class="assetTileShareIcon" press="onTileSharePress" tooltip="{i18n>tooltipShareNavigate}" />
                                         </VBox>
@@ -61,9 +58,9 @@
                                         <customData>
                                             <core:CustomData key="dashboardId" value="94" />
                                         </customData>
-                                        <TileContent>
+                                        <!--TileContent>
                                             <ImageContent src="sap-icon://accidental-leave" />
-                                        </TileContent>
+                                        </TileContent!-->
                                     </GenericTile>
                                 </VBox>
                                 <VBox class="assetTileWrapper">
@@ -71,9 +68,9 @@
                                         <customData>
                                             <core:CustomData key="dashboardId" value="1201" />
                                         </customData>
-                                        <TileContent>
+                                        <!--TileContent>
                                             <ImageContent src="sap-icon://pie-chart" />
-                                        </TileContent>
+                                        </TileContent-->
                                     </GenericTile>
                                 </VBox>
                                 <VBox class="assetTileWrapper">
@@ -81,9 +78,9 @@
                                         <customData>
                                             <core:CustomData key="dashboardId" value="1180" />
                                         </customData>
-                                        <TileContent>
+                                        <!--TileContent>
                                             <ImageContent src="sap-icon://key-user-settings" />
-                                        </TileContent>
+                                        </TileContent-->
                                     </GenericTile>
                                 </VBox>
                                 <VBox class="assetTileWrapper">
@@ -91,9 +88,9 @@
                                         <customData>
                                             <core:CustomData key="dashboardId" value="1196" />
                                         </customData>
-                                        <TileContent>
+                                        <!--TileContent>
                                             <ImageContent src="sap-icon://away" />
-                                        </TileContent>
+                                        </TileContent-->
                                     </GenericTile>
                                 </VBox>
                             </FlexBox>

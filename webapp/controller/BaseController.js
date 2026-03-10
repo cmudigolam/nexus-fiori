@@ -74,14 +74,20 @@ sap.ui.define([
         setBusyOff: function () {
             window.appView.setBusy(false);
         },
+        isRunninglocally: function () {
+            var sHost = window.location.host;
+            if (!sHost.includes("localhost"))
+                var Prefix = this.getCompleteURL();
+            else var Prefix = "";
+            return Prefix;
+        },
 
         fetchDetailTiles: function (sCtId, sCompoonentID, hash) {
             this.setBusyOn();
             var oLocalDataModel = this.getLocalDataModel();
-            var iconList = this.getSapIcons();
             var self = this;
             $.ajax({
-                url:  "/bo/Info_Def/",
+                url:  self.isRunninglocally()+ "/bo/Info_Def/",
                 method: "GET",
                 dataType: "json",
                 headers: {
@@ -118,7 +124,7 @@ sap.ui.define([
 
                     // Second service call: get table definitions by TD_IDs
                     $.ajax({
-                        url:  "/bo/Table_Def/",
+                        url:  self.isRunninglocally()+ "/bo/Table_Def/",
                         method: "GET",
                         dataType: "json",
                         headers: {
@@ -128,14 +134,9 @@ sap.ui.define([
                             hash: hash
                         },
                         success: function (response2) {
-                            var tdIdToIcon = {};
-                            aTdIds.forEach(function (tdId, idx) {
-                                tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
-                            });
                             var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : [])
                                 .reduce(function(aTiles, oTile) {
                                     if (oTile.DT_ID === 1) {
-                                        oTile.icon = tdIdToIcon[oTile.TD_ID] || "sap-icon://hint";
                                         aTiles.push(oTile);
                                     }
                                     return aTiles;
@@ -176,13 +177,14 @@ sap.ui.define([
             var self = this;
             return $.ajax({
                 // 
-                "url":  "/security/login",
+                "url":  self.isRunninglocally()+ "/security/login",
                 "method": "GET",
                 "success": function (result, xhr, successData) {
                     this.getLocalDataModel().setProperty("/HashToken", result.hash);
                 }.bind(this),
                 "error": function (errorData) {
-                    debugger
+                    this.setBusyOff();
+                    MessageBox.error("Error on Login")
                 }.bind(this)
             });
         },

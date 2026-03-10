@@ -197,7 +197,7 @@ sap.ui.define([
             var fnCallTableApi = function (sResolvedHash) {
                 this.setBusyOn();
                 $.ajax({
-                    "url": "/bo/" + encodeURIComponent(sTableName),
+                    "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -401,7 +401,7 @@ sap.ui.define([
             // If field has a lookupListId, create a ComboBox and load lookup items
             if (oField.lookupListId) {
                 var oComboBox = new sap.m.ComboBox({
-                    placeholder: oField.name || oField.fieldName,
+                    //placeholder: oField.name || oField.fieldName,
                     width: "100%"
                 });
                 this._loadLookupItems(oComboBox, oField.lookupListId);
@@ -412,7 +412,7 @@ sap.ui.define([
             switch (oField.fieldTypeId) {
                 case 9: // Date field
                     return new sap.m.DatePicker({
-                        placeholder: oField.name || oField.fieldName,
+                        //placeholder: oField.name || oField.fieldName,
                         valueFormat: "yyyy-MM-dd"
                     });
                 case 5: // Boolean field
@@ -422,21 +422,21 @@ sap.ui.define([
                 case 6: // Numeric field
                     return new sap.m.Input({
                         type: "Number",
-                        placeholder: oField.name || oField.fieldName
+                        //placeholder: oField.name || oField.fieldName
                     });
                 case 37: // Lookup/Dropdown field
                     return new sap.m.ComboBox({
-                        placeholder: oField.name || oField.fieldName
+                        //placeholder: oField.name || oField.fieldName
                     });
                 case 38: // Sub-table
                     return new sap.m.Input({
-                        placeholder: oField.name || oField.fieldName,
+                        //placeholder: oField.name || oField.fieldName,
                         enabled: false
                     });
                 default: // Text field
                     return new sap.m.Input({
                         type: "Text",
-                        placeholder: oField.name || oField.fieldName
+                        //placeholder: oField.name || oField.fieldName
                     });
             }
         },
@@ -448,7 +448,7 @@ sap.ui.define([
 
             var fnFetch = function (sResolvedHash) {
                 $.ajax({
-                    "url": "/bo/Lookup_Item/",
+                    "url": self.isRunninglocally()+ "/bo/Lookup_Item/",
                     "method": "GET",
                     "dataType": "json",
                     "headers": {
@@ -514,7 +514,7 @@ sap.ui.define([
             var fnFetchData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
+                    "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -565,7 +565,7 @@ sap.ui.define([
         _checkPermissions: function (sProductValue, sHash) {
             var self = this;
             $.ajax({
-                "url": "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
+                "url": self.isRunninglocally()+ "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -686,6 +686,10 @@ sap.ui.define([
                         oControl.setValueState("Error");
                         oControl.setValueStateText(oInvalid.message || this.getResourceBundle().getText("msgFieldRequired"));
                     }
+                    // Add red border styling for better visibility
+                    if (oControl.addStyleClass) {
+                        oControl.addStyleClass("mandatoryFieldError");
+                    }
                 }
             }.bind(this));
         },
@@ -701,7 +705,53 @@ sap.ui.define([
                     oControl.setValueState("None");
                     oControl.setValueStateText("");
                 }
+                // Remove error styling
+                if (oControl.removeStyleClass) {
+                    oControl.removeStyleClass("mandatoryFieldError");
+                }
             });
+        },
+
+        _validateMandatoryFields: function () {
+            var aValidationErrors = [];
+            var oFormData = this._oFormDialog.getModel("FormData").getProperty("/formData");
+
+            if (!oFormData || !oFormData.fields || !this._fieldControlMap) {
+                return aValidationErrors;
+            }
+
+            var self = this;
+            oFormData.fields.forEach(function (oField) {
+                if (oField.required) {
+                    var sFieldKey = oField.fieldName || oField.name;
+                    var oControl = self._fieldControlMap[sFieldKey];
+
+                    if (oControl) {
+                        var bIsValid = false;
+
+                        if (oControl.isA("sap.m.Input")) {
+                            bIsValid = oControl.getValue() && oControl.getValue().trim() !== "";
+                        } else if (oControl.isA("sap.m.DatePicker")) {
+                            bIsValid = oControl.getDateValue() !== null;
+                        } else if (oControl.isA("sap.m.CheckBox")) {
+                            // Checkboxes are typically not mandatory in the same way
+                            bIsValid = true;
+                        } else if (oControl.isA("sap.m.ComboBox")) {
+                            bIsValid = (oControl.getSelectedKey() || oControl.getValue()) && 
+                                      (oControl.getSelectedKey() || oControl.getValue()).trim() !== "";
+                        }
+
+                        if (!bIsValid) {
+                            aValidationErrors.push({
+                                field: sFieldKey,
+                                message: self.getResourceBundle().getText("msgFieldRequired")
+                            });
+                        }
+                    }
+                }
+            });
+
+            return aValidationErrors;
         },
 
         onFormSave: function () {
@@ -713,6 +763,17 @@ sap.ui.define([
 
             if (!sTableName || !sComponentId) {
                 MessageToast.show(this.getResourceBundle().getText("msgMissingTableOrComponent"));
+                return;
+            }
+
+            // Clear previous validation errors
+            self._clearFieldValidationErrors();
+
+            // Perform mandatory field validation
+            var aValidationErrors = self._validateMandatoryFields();
+            if (aValidationErrors.length > 0) {
+                self._showFieldValidationErrors(aValidationErrors);
+                MessageToast.show(self.getResourceBundle().getText("msgFieldsRequireAttention", [aValidationErrors.length]));
                 return;
             }
 
@@ -746,16 +807,11 @@ sap.ui.define([
                     }
                 });
             }
-
-            console.log("Save payload:", JSON.stringify(oPayload));
-
-            // Clear previous validation errors
-            self._clearFieldValidationErrors();
             self.setBusyOn();
             var fnPostData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
+                    "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
                     "method": "POST",
                     "contentType": "application/json",
                     "dataType": "json",

@@ -14,13 +14,14 @@ sap.ui.define([
         onRouteMatched: function () {
             this.setBusyOn();
             this.getLocalDataModel().setProperty("/treeTable", []);
+            this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
             this._compTypeMap = {};
             var self = this;
             this.getoHashToken().done(function (result) {
                 this.hash = result.hash;
                 // Fetch Comp_Type to build CT_ID -> Name map
                 $.ajax({
-                    "url":  "/bo/Comp_Type/",
+                    "url":  self.isRunninglocally()+ "/bo/Comp_Type/",
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -46,7 +47,7 @@ sap.ui.define([
         _loadCompView: function () {
             var self = this;
             $.ajax({
-                "url":  "/bo/Comp_view/",
+                "url":  self.isRunninglocally()+ "/bo/Comp_view/",
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -106,7 +107,7 @@ sap.ui.define([
             this.setBusyOn();
             // roote api call
             $.ajax({
-                "url":  "/bo/View_Node/",
+                "url":  self.isRunninglocally()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -117,23 +118,22 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-                    var aIcons = this.getSapIcons();
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
                         var sCtId = oRow.CT_ID || "";
                         var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
-                        var sIcon = aIcons.length > 0 ? aIcons[Math.floor(Math.random() * aIcons.length)] : "sap-icon://hint";
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
-                            icon: sIcon,
                             rows: aChildRows
                         });
                     }.bind(this));
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
+                    // Set fixed visible row count for proper scrolling with sticky headers
+                    this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
                     // Collapse all root nodes after the TreeTable has processed the new data
                     var oTreeTable = this.byId("TreeTableBasic");
                     if (oTreeTable) {
@@ -213,7 +213,7 @@ sap.ui.define([
 
             this.setBusyOn();
             $.ajax({
-                "url": "/bo/View_Node/",
+                "url": self.isRunninglocally()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -224,19 +224,16 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-                    var aIcons = this.getSapIcons();
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
                         var sCtId = oRow.CT_ID || "";
                         var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
-                        var sIcon = aIcons.length > 0 ? aIcons[Math.floor(Math.random() * aIcons.length)] : "sap-icon://hint";
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
-                            icon: sIcon,
                             rows: aChildRows
                         });
                     }.bind(this));

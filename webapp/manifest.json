@@ -99,14 +99,14 @@
       "routes": [
         {
           "name": "Dashboard",
-          "pattern": "",
+          "pattern": "Dashboard",
           "target": [
             "Dashboard"
           ]
         },
         {
           "name": "Master",
-          "pattern": "Master:layout:",
+          "pattern": ":layout:",
           "target": [
             "Master",
             "Detail"

@@ -27,10 +27,9 @@
                     rowSelectionChange="onRowSelect"
                     toggleOpenState="onToggleOpenState"
                     enableSelectAll="false"
-                    ariaLabelledBy="pageTitle">
-                    <tree:rowMode>
-                        <rm:Auto minRowCount="14" />
-                    </tree:rowMode>
+                    ariaLabelledBy="pageTitle"
+                    visibleRowCount="15"
+                    height="400px">
                     <tree:extension>
                         <OverflowToolbar style="Clear" class="assetMasterToolbar">
                             <Title text="{i18n>lblRootAsset}" level="H5">
@@ -59,16 +58,13 @@
                         </OverflowToolbar>
                     </tree:extension>
                 <tree:columns>
-                    <tree:Column id="colCategories">
+                    <tree:Column id="colCategories" width="60%">
                         <Label id="lblCategories" text="{i18n>lblAssetName}"/>
                         <tree:template>
-                            <HBox>
-                                <core:Icon src="{LocalDataModel>icon}" size="1.2rem" color="#427cac" class="sapUiTinyMarginEnd"/>
-                                <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
-                            </HBox>
+                            <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
                         </tree:template>
                     </tree:Column>
-                    <tree:Column id="colAssetType">
+                    <tree:Column id="colAssetType" width="40%">
                         <Label id="lblAssetType" text="{i18n>lblAssetType}"/>
                         <tree:template>
                             <Text id="txtAssetType" text="{LocalDataModel>AssetType}" />
