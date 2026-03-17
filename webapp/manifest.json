@@ -111,7 +111,7 @@
             "Master",
             "Detail"
           ],
-          "layout": "OneColumn"
+          "layout": "TwoColumnsMidExpanded"
         },
         {
           "pattern": "Detail/:layout:",

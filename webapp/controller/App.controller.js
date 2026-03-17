@@ -19,10 +19,14 @@ sap.ui.define([
 
       var data = oStorage.get("appSessionData");
       //console.log(data[0].TermsAndConditions); // storage
-      if (content.includes("TwoColumnsMidExpanded") || content.includes("MidColumnFullScreen") ) {
+      
+      // Navigate to Dashboard if no hash is present
+      if (!content || content === "") {
+        this.oRouter.navTo("Dashboard", {}, true);
+      } else if (content.includes("TwoColumnsMidExpanded") || content.includes("MidColumnFullScreen") ) {
         var oRouter = sap.ui.core.UIComponent.getRouterFor(this);
         oRouter.navTo("Master", {
-          layout: "OneColumn"
+          layout: "TwoColumnsMidExpanded"
         });
       }
     },

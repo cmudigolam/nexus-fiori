@@ -193,8 +193,15 @@ sap.ui.define([
                     if (oTreeTable) {
                         oTreeTable.attachEventOnce("rowsUpdated", function () {
                             oTreeTable.collapseAll();
-                        });
-                    }
+                            // Auto-select the first row after tree table is rendered
+                            if (aRows.length > 0) {
+                                var self = this;
+                                setTimeout(function() {
+                                    self._selectFirstRow(oTreeTable, aRows[0]);
+                                }, 100);
+                            }
+                        }.bind(this));
+                    }         
                     this.setBusyOff();
                 }.bind(this),
                 "error": function (errorData) {
@@ -242,6 +249,39 @@ sap.ui.define([
             // Publish event to update breadcrumbs in Detail controller only after row selection
             sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
         },
+
+        _selectFirstRow: function (oTreeTable, oFirstRow) {
+            if (!oFirstRow || !oFirstRow.CT_ID) {
+                return;
+            }
+
+            // Set the first row as selected in the tree table
+            oTreeTable.setSelectedIndex(0);
+
+            // Update selectedNodeData to the first row
+            var oLocalDataModel = this.getLocalDataModel();
+            oLocalDataModel.setProperty("/selectedNodeData", oFirstRow);
+
+            var sCtId = oFirstRow.CT_ID;
+            var sCompoonentID = oFirstRow.Component_ID;
+            oLocalDataModel.setProperty("/sCompoonentID", sCompoonentID);
+
+            // Add first row to nodeInfoArr
+            this.addNodeToInfoArr(oFirstRow);
+
+            // Update share URL in model for tooltip binding
+            var sVnId = oFirstRow.VN_ID;
+            if (sVnId) {
+                oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sVnId);
+            } else {
+                oLocalDataModel.setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
+            }
+
+            this.fetchDetailTiles(sCtId, sCompoonentID, this.hash);
+            // Publish event to update breadcrumbs in Detail controller
+            sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
+        },
+
         onToggleOpenState: function (oEvent) {
             var self = this;
             var iRowIndex = oEvent.getParameter("rowIndex");
