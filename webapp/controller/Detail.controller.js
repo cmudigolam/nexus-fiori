@@ -8,12 +8,12 @@ sap.ui.define([
     "sap/m/Input",
     "sap/m/DatePicker",
     "sap/m/CheckBox",
-    "sap/m/ComboBox",
+    "sap/m/Select",
     "sap/m/VBox",
     "sap/ui/layout/form/SimpleForm",
     "sap/ui/core/Item",
     "sap/m/MessageBox"
-], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, ComboBox, VBox, SimpleForm, Item, MessageBox) => {
+], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, Select, VBox, SimpleForm, Item, MessageBox) => {
     "use strict";
 
     return BaseController.extend("com.nexus.asset.controller.Detail", {
@@ -305,12 +305,23 @@ sap.ui.define([
 
             // Build form content dynamically
             self._fieldControlMap = {};
+            self._pendingComboBoxValues = {};
+            self._pendingLookupCount = 0;
+            self._formDataTableName = sTableName;
             self.buildFormContent(oFormData, oCategorizedFields);
 
+            // Set busy indicator to show immediately when dialog opens
+            self._oFormDialog.setBusyIndicatorDelay(0);
+            self._oFormDialog.setBusy(true);
+            
             self._oFormDialog.open();
 
-            // After form is opened, fetch data and populate form fields
-            self._loadFormData(sTableName);
+            // After form is opened, check if there are pending lookups
+            // If no lookups, load form data immediately
+            // Otherwise, it will be called after all lookups complete
+            if (self._pendingLookupCount === 0) {
+                self._loadFormData(sTableName);
+            }
         },
 
         buildFormContent: function (oFormData, oCategorizedFields) {
@@ -356,6 +367,7 @@ sap.ui.define([
                         oInput.setVisible(bVisible);
                         // Store reference for later data population
                         var sFieldKey = oField.fieldName || oField.name;
+                        console.log("Creating field - fieldName:", oField.fieldName, "name:", oField.name, "using key:", sFieldKey, "lookupListId:", oField.lookupListId, "fieldTypeId:", oField.fieldTypeId);
                         if (sFieldKey) {
                             self._fieldControlMap[sFieldKey] = oInput;
                         }
@@ -398,14 +410,15 @@ sap.ui.define([
         },
 
         createFieldControl: function (oField) {
-            // If field has a lookupListId, create a ComboBox and load lookup items
+            // If field has a lookupListId, create a Select and load lookup items
             if (oField.lookupListId) {
-                var oComboBox = new sap.m.ComboBox({
+                this._pendingLookupCount++;
+                var oSelect = new sap.m.Select({
                     //placeholder: oField.name || oField.fieldName,
                     width: "100%"
                 });
-                this._loadLookupItems(oComboBox, oField.lookupListId);
-                return oComboBox;
+                this._loadLookupItems(oSelect, oField.lookupListId);
+                return oSelect;
             }
 
             // Create appropriate control based on field type
@@ -425,9 +438,12 @@ sap.ui.define([
                         //placeholder: oField.name || oField.fieldName
                     });
                 case 37: // Lookup/Dropdown field
-                    return new sap.m.ComboBox({
+                    this._pendingLookupCount++;
+                    var oSelect = new sap.m.Select({
                         //placeholder: oField.name || oField.fieldName
                     });
+                    // Note: For fieldTypeId 37, lookupListId should be set separately
+                    return oSelect;
                 case 38: // Sub-table
                     return new sap.m.Input({
                         //placeholder: oField.name || oField.fieldName,
@@ -441,7 +457,7 @@ sap.ui.define([
             }
         },
 
-        _loadLookupItems: function (oComboBox, sLookupListId) {
+        _loadLookupItems: function (oSelect, sLookupListId) {
             var oLocalDataModel = this.getLocalDataModel();
             var sHash = oLocalDataModel.getProperty("/HashToken");
             var self = this;
@@ -453,23 +469,53 @@ sap.ui.define([
                     "dataType": "json",
                     "headers": {
                         "X-NEXUS-Filter": JSON.stringify({ "where": [{ "field": "LL_ID", "method": "eq", "value": sLookupListId }] }),
-                        "X-NEXUS-Sort": JSON.stringify([{ "field": "Value", "ascending": false }])
+                        "X-NEXUS-Sort": JSON.stringify([{ "field": "Value", "ascending": true }])
                     },
                     "data": {
                         "hash": sResolvedHash
                     },
                     "success": function (response) {
                         var aItems = Array.isArray(response && response.rows) ? response.rows : [];
-                        oComboBox.removeAllItems();
+                        console.log("Lookup_Item Response for LL_ID " + sLookupListId + ":", aItems);
+                        oSelect.removeAllItems();
                         aItems.forEach(function (oItem) {
-                            oComboBox.addItem(new Item({
-                                key: oItem.LI_ID || oItem.Value || "",
-                                text: oItem.Value || oItem.Name || ""
+                            // Use LI_ID as the key (internal identifier stored in database)
+                            // Use Value as the display text (what user sees)
+                            var sKey = String(oItem.LI_ID || oItem.Value || "");
+                            var sText = String(oItem.Value || oItem.Name || oItem.Description || "");
+                            console.log("Adding lookup item - LI_ID (Key):", sKey, "Value (Text):", sText, "Full item:", oItem);
+                            oSelect.addItem(new Item({
+                                key: sKey,
+                                text: sText
                             }));
                         });
+                        
+                        // After items are loaded, apply any pending value selection
+                        console.log("Lookup items loaded. Checking for pending values...");
+                        self._applyPendingComboBoxValues();
+                        
+                        // Decrement pending lookup count
+                        self._pendingLookupCount--;
+                        console.log("Lookup completed. Pending lookups remaining:", self._pendingLookupCount);
+                        
+                        // If all lookups are done, load form data
+                        if (self._pendingLookupCount === 0 && self._formDataTableName) {
+                            console.log("All lookups completed. Loading form data...");
+                            self._loadFormData(self._formDataTableName);
+                        }
                     },
                     "error": function () {
                         MessageToast.show(self.getResourceBundle().getText("msgErrorLoadingLookupItems"));
+                        
+                        // Decrement pending lookup count even on error
+                        self._pendingLookupCount--;
+                        console.log("Lookup failed. Pending lookups remaining:", self._pendingLookupCount);
+                        
+                        // If all lookups are done (or failed), load form data
+                        if (self._pendingLookupCount === 0 && self._formDataTableName) {
+                            console.log("All lookups completed (some failed). Loading form data...");
+                            self._loadFormData(self._formDataTableName);
+                        }
                     }
                 });
             };
@@ -508,6 +554,10 @@ sap.ui.define([
 
             if (!sComponentId) {
                 MessageToast.show(this.getResourceBundle().getText("msgNoComponentSelected"));
+                // Turn off busy indicator if no component is selected
+                if (this._oFormDialog) {
+                    this._oFormDialog.setBusy(false);
+                }
                 return;
             }
 
@@ -522,19 +572,18 @@ sap.ui.define([
                     },
                     "success": function (response) {
                         self._populateFormFields(response);
-                        // Extract Piping_Design_Code and check permissions
+                        // Extract Component_ID and record for validation
                         var oRecord = response;
                         if (Array.isArray(response.rows) && response.rows.length > 0) {
                             oRecord = response.rows[0];
                         } else if (Array.isArray(response) && response.length > 0) {
                             oRecord = response[0];
                         }
-                        var sPipingDesignCode = oRecord && oRecord.Piping_Design_Code;
-                        if (sPipingDesignCode) {
-                            self._checkPermissions(sPipingDesignCode, sResolvedHash); // need to enable
+                        var sComponentId = oRecord && oRecord.Component_ID;
+                        if (sComponentId) {
+                            // Make validation POST call to check field visibility
+                            self._validateFieldVisibility(sComponentId, oRecord, sResolvedHash,sTableName);
                         } else {
-                            // No Piping_Design_Code available, default to read-only
-                            self._setFormReadOnly(true);
                             self.setBusyOff();
                         }
                     },
@@ -554,12 +603,148 @@ sap.ui.define([
                 var sFetchedHash = oResult && oResult.hash;
                 if (!sFetchedHash) {
                     MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
+                    // Turn off busy indicator if hash token cannot be fetched
+                    if (self._oFormDialog) {
+                        self._oFormDialog.setBusy(false);
+                    }
                     return;
                 }
                 fnFetchData(sFetchedHash);
             }).fail(function () {
                 MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
+                // Turn off busy indicator on hash token fetch failure
+                if (self._oFormDialog) {
+                    self._oFormDialog.setBusy(false);
+                }
             });
+        },
+
+        _validateFieldVisibility: function (sComponentId, oRecord, sHash,sTableName) {
+            var self = this;
+            // Show busy indicator on dialog
+            if (this._oFormDialog) {
+                this._oFormDialog.setBusy(true);
+            }
+            $.ajax({
+                "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
+                "method": "POST",
+                "contentType": "application/json",
+                "dataType": "json",
+                "data": JSON.stringify(oRecord),
+                "success": function (response) {
+                    // Update field visibility based on validation response
+                    self._updateFieldVisibilityFromValidation(response);
+                    // Hide busy indicator on dialog
+                    if (self._oFormDialog) {
+                        self._oFormDialog.setBusy(false);
+                    }
+                    // Hide global busy indicator
+                    self.setBusyOff();
+                },
+                "error": function () {
+                    // If validation fails, hide busy indicator
+                    if (self._oFormDialog) {
+                        self._oFormDialog.setBusy(false);
+                    }
+                    // Hide global busy indicator
+                    self.setBusyOff();
+                }
+            });
+        },
+
+        _updateFieldVisibilityFromValidation: function (oValidationResponse) {
+            if (!oValidationResponse || !this._fieldControlMap) {
+                return;
+            }
+
+            var oFormModel = this._oFormDialog && this._oFormDialog.getModel("FormData");
+            if (!oFormModel) {
+                return;
+            }
+
+            var oFormData = oFormModel.getProperty("/formData");
+            if (!oFormData || !oFormData.fields) {
+                return;
+            }
+
+            // Check if updateStates is available in the response
+            var oUpdateStates = oValidationResponse.updateStates;
+            var bHasUpdateStates = oUpdateStates && typeof oUpdateStates === "object";
+            console.log("UpdateStates structure:", oUpdateStates);
+            console.log("UpdateStates is array?", Array.isArray(oUpdateStates));
+
+            var self = this;
+            var iVisibleFieldCount = 0;
+            
+            oFormData.fields.forEach(function (oField) {
+                var sFieldKey = oField.fieldName || oField.name;
+                var oControl = self._fieldControlMap[sFieldKey];
+
+                if (!oControl) {
+                    return;
+                }
+
+                // Rule 1: If formVisible is false from metadata, field is HIDDEN
+                if (oField.formVisible === false) {
+                    console.log("Field", sFieldKey, "-> formVisible=false, HIDDEN");
+                    oControl.setVisible(false);
+                    return;
+                }
+
+                // Rule 2: formVisible is true or not specified, check updateStates
+                var bFieldVisible = true; // default visibility
+                
+                if (bHasUpdateStates) {
+                    var oFieldUpdateState;
+                    
+                    // Find field in updateStates (handle both array and object)
+                    if (Array.isArray(oUpdateStates)) {
+                        oFieldUpdateState = oUpdateStates.find(function (oItem) {
+                            return oItem.fieldName === sFieldKey || oItem.name === sFieldKey || oItem.id === sFieldKey;
+                        });
+                    } else {
+                        oFieldUpdateState = oUpdateStates[sFieldKey] || oUpdateStates[String(sFieldKey)];
+                    }
+                    
+                    // If field found in updateStates, check its visible property
+                    if (oFieldUpdateState !== undefined && oFieldUpdateState !== null) {
+                        if (oFieldUpdateState.visible !== undefined) {
+                            // visible property exists -> use its value
+                            bFieldVisible = oFieldUpdateState.visible === true;
+                            console.log("Field", sFieldKey, "-> found in updateStates, visible=" + oFieldUpdateState.visible + ", VISIBILITY=" + bFieldVisible);
+                        } else {
+                            // visible property doesn't exist -> default to visible
+                            bFieldVisible = true;
+                            console.log("Field", sFieldKey, "-> found in updateStates but no visible property, default VISIBLE");
+                        }
+                    } else {
+                        // Field NOT found in updateStates -> default to visible
+                        bFieldVisible = true;
+                        console.log("Field", sFieldKey, "-> NOT found in updateStates, default VISIBLE");
+                    }
+                } else {
+                    // No updateStates in response -> default to visible
+                    bFieldVisible = true;
+                    console.log("Field", sFieldKey, "-> no updateStates, default VISIBLE");
+                }
+                
+                oControl.setVisible(bFieldVisible);
+                if (bFieldVisible) {
+                    iVisibleFieldCount++;
+                }
+            });
+
+            // If no fields are visible, show message and hide save button
+            if (iVisibleFieldCount === 0) {
+                MessageToast.show(this.getResourceBundle().getText("msgNoFieldsVisible") || "Fields are not visible");
+                // Hide the save button
+                if (this._oFormDialog) {
+                    var oSaveButton = this._oFormDialog.getBeginButton();
+                    if (oSaveButton) {
+                        oSaveButton.setVisible(false);
+                    }
+                }
+            }
         },
 
         _checkPermissions: function (sProductValue, sHash) {
@@ -608,7 +793,7 @@ sap.ui.define([
             if (this._fieldControlMap) {
                 Object.keys(this._fieldControlMap).forEach(function (sKey) {
                     var oControl = this._fieldControlMap[sKey];
-                    if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.DatePicker") || oControl.isA("sap.m.ComboBox")) {
+                    if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.DatePicker") || oControl.isA("sap.m.Select")) {
                         oControl.setEditable(!bReadOnly);
                     } else if (oControl.isA("sap.m.CheckBox")) {
                         oControl.setEnabled(!bReadOnly);
@@ -638,6 +823,16 @@ sap.ui.define([
                 oRecord = oData[0];
             }
 
+            console.log("=== POPULATE FORM FIELDS ===");
+            console.log("Record data:", JSON.stringify(oRecord, null, 2));
+            console.log("Field Control Map has keys:", Object.keys(this._fieldControlMap));
+            console.log("============================");
+
+            // Initialize pending ComboBox values
+            if (!this._pendingComboBoxValues) {
+                this._pendingComboBoxValues = {};
+            }
+
             var self = this;
             Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
                 var oControl = self._fieldControlMap[sFieldKey];
@@ -653,23 +848,39 @@ sap.ui.define([
                     oControl.setValue(String(vValue));
                 } else if (oControl.isA("sap.m.CheckBox")) {
                     oControl.setSelected(!!vValue);
-                } else if (oControl.isA("sap.m.ComboBox")) {
-                    // Try to match by key first, then fall back to value
+                } else if (oControl.isA("sap.m.Select")) {
+                    var sValueStr = String(vValue).trim();
+                    console.log("=== POPULATE Select ===");
+                    console.log("Field Key:", sFieldKey);
+                    console.log("Raw value from record:", vValue);
+                    console.log("Normalized value:", sValueStr);
+                    
+                    // Store this value as pending - it will be applied after items load
+                    self._pendingComboBoxValues[sFieldKey] = {
+                        control: oControl,
+                        value: sValueStr
+                    };
+                    
+                    // Get all items in the select
                     var aItems = oControl.getItems();
-                    var bFound = aItems.some(function (oItem) {
-                        return oItem.getKey() === String(vValue);
-                    });
-                    if (bFound) {
-                        oControl.setSelectedKey(String(vValue));
+                    console.log("Select has", aItems.length, "items currently");
+                    
+                    if (aItems && aItems.length > 0) {
+                        // Items already loaded, apply immediately
+                        console.log("Items available, applying value immediately");
+                        self._applyComboBoxValue(oControl, sFieldKey, sValueStr);
                     } else {
-                        oControl.setValue(String(vValue));
+                        // Items not loaded yet - they will be applied when _applyPendingComboBoxValues is called
+                        console.log("Items not loaded yet, storing as pending");
                     }
+                    console.log("==========================");
                 }
             });
         },
 
         onFormDialogClose: function () {
             if (this._oFormDialog) {
+                this._oFormDialog.setBusy(false);
                 this._clearFieldValidationErrors();
                 this._oFormDialog.close();
             }
@@ -736,7 +947,7 @@ sap.ui.define([
                         } else if (oControl.isA("sap.m.CheckBox")) {
                             // Checkboxes are typically not mandatory in the same way
                             bIsValid = true;
-                        } else if (oControl.isA("sap.m.ComboBox")) {
+                        } else if (oControl.isA("sap.m.Select")) {
                             bIsValid = (oControl.getSelectedKey() || oControl.getValue()) && 
                                       (oControl.getSelectedKey() || oControl.getValue()).trim() !== "";
                         }
@@ -752,6 +963,84 @@ sap.ui.define([
             });
 
             return aValidationErrors;
+        },
+
+        _applyComboBoxValue: function (oSelect, sFieldKey, sValue) {
+            var aItems = oSelect.getItems();
+            console.log("_applyComboBoxValue for field:", sFieldKey, "value:", sValue);
+            
+            if (!aItems || aItems.length === 0) {
+                console.log("No items available in Select");
+                return;
+            }
+            
+            // Normalize the value for comparison
+            var sNormalizedValue = String(sValue).trim();
+            
+            // Log all available keys and texts
+            var aAvailableKeys = [];
+            aItems.forEach(function(oItem, idx) {
+                aAvailableKeys.push({
+                    key: oItem.getKey(),
+                    text: oItem.getText()
+                });
+            });
+            console.log("Available items:", aAvailableKeys);
+            console.log("Looking for value:", sNormalizedValue);
+            
+            // Priority 1: Try to match by display text (Value field from lookup) since that's what gets stored
+            var matchedKey = null;
+            for (var i = 0; i < aItems.length; i++) {
+                var sItemText = String(aItems[i].getText()).trim();
+                
+                // Try text match first (this is what the database stores)
+                if (sItemText === sNormalizedValue) {
+                    matchedKey = aItems[i].getKey();
+                    console.log("✓ Found matching TEXT (Value), setting selected key:", matchedKey, "text:", sItemText);
+                    break;
+                }
+            }
+            
+            // Priority 2: If no text match, try key match (LI_ID)
+            if (matchedKey === null) {
+                for (var i = 0; i < aItems.length; i++) {
+                    var sItemKey = String(aItems[i].getKey()).trim();
+                    
+                    // Try key match (including numeric comparison)
+                    if (sItemKey === sNormalizedValue || parseInt(sItemKey) === parseInt(sNormalizedValue)) {
+                        matchedKey = aItems[i].getKey();
+                        console.log("✓ Found matching KEY (LI_ID), setting selected key:", matchedKey);
+                        break;
+                    }
+                }
+            }
+            
+            if (matchedKey !== null) {
+                oSelect.setSelectedKey(matchedKey);
+            } else {
+                console.log("✗ No matching value found for:", sNormalizedValue);
+                console.log("Available items:", aAvailableKeys);
+            }
+        },
+
+        _applyPendingComboBoxValues: function () {
+            console.log("=== APPLYING PENDING ComboBox VALUES ===");
+            if (!this._pendingComboBoxValues || Object.keys(this._pendingComboBoxValues).length === 0) {
+                console.log("No pending values to apply");
+                console.log("=======================================");
+                return;
+            }
+            
+            var self = this;
+            Object.keys(this._pendingComboBoxValues).forEach(function (sFieldKey) {
+                var oPending = self._pendingComboBoxValues[sFieldKey];
+                console.log("Applying pending value for field:", sFieldKey, "value:", oPending.value);
+                self._applyComboBoxValue(oPending.control, sFieldKey, oPending.value);
+            });
+            
+            // Clear pending values after applying
+            this._pendingComboBoxValues = {};
+            console.log("=======================================");
         },
 
         onFormSave: function () {
@@ -799,17 +1088,41 @@ sap.ui.define([
                         }
                     } else if (oControl.isA("sap.m.CheckBox")) {
                         oPayload[sFieldKey] = oControl.getSelected();
-                    } else if (oControl.isA("sap.m.ComboBox")) {
-                        vValue = oControl.getSelectedKey() || oControl.getValue();
-                        if (vValue !== "" && vValue !== undefined) {
-                            oPayload[sFieldKey] = vValue;
+                    } else if (oControl.isA("sap.m.Select")) {
+                        var sSelectedKey = oControl.getSelectedKey();
+                        var oSelectedItem = oControl.getSelectedItem();
+                        var sSelectedText = oSelectedItem ? oSelectedItem.getText() : "";
+                        
+                        console.log("=== Select Extract ===");
+                        console.log("Field Key:", sFieldKey);
+                        console.log("Selected Key (LI_ID):", sSelectedKey);
+                        console.log("Selected Text (Value):", sSelectedText);
+                        console.log("Selected Item:", oSelectedItem);
+                        
+                        // Post the selected text/value (not the LI_ID) - this is what the database expects
+                        if (sSelectedText !== "" && sSelectedText !== undefined) {
+                            oPayload[sFieldKey] = sSelectedText;
+                            console.log("✓ Posting field:", sFieldKey, "= value:", sSelectedText);
+                        } else if (sSelectedKey !== "" && sSelectedKey !== undefined) {
+                            oPayload[sFieldKey] = sSelectedKey;
+                            console.log("✓ Posting field:", sFieldKey, "= key value:", sSelectedKey);
+                        } else {
+                            console.log("✗ No value selected for field:", sFieldKey);
                         }
+                        console.log("======================");
                     }
                 });
             }
             self.setBusyOn();
             var fnPostData = function (sResolvedHash) {
                 self.setBusyOn();
+                console.log("=== FORM SAVE DEBUG ===");
+                console.log("Table:", sTableName);
+                console.log("Component ID:", sComponentId);
+                console.log("Field Control Map Keys:", Object.keys(self._fieldControlMap));
+                console.log("Payload to post:", JSON.stringify(oPayload, null, 2));
+                console.log("Payload keys:", Object.keys(oPayload));
+                console.log("========================");
                 $.ajax({
                     "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
                     "method": "POST",
@@ -831,6 +1144,11 @@ sap.ui.define([
                     },
                     "error": function (jqXHR) {
                         var sMsg = self.getResourceBundle().getText("msgErrorSavingFormData");
+                        console.error("=== FORM SAVE ERROR ===");
+                        console.error("HTTP Status:", jqXHR.status);
+                        console.error("Payload sent:", JSON.stringify(oPayload, null, 2));
+                        console.error("Response:", jqXHR.responseText);
+                        console.error("=======================");
                         try {
                             var oErr = JSON.parse(jqXHR.responseText);
                             // Handle structured validation errors

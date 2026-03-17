@@ -11,6 +11,20 @@ sap.ui.define([
                 oRouter.getRoute("Master").attachPatternMatched(this.onRouteMatched, this);
             }
         },
+        onAfterRendering: function () {
+            var oTable = this.getView().byId("TreeTableBasic");
+            if (oTable) {
+                // Calculate visible rows based on available container height
+                var oTableDom = oTable.getDomRef();
+                if (oTableDom) {
+                    var iContainerHeight = oTableDom.parentElement.offsetHeight;
+                    var iRowHeight = 28; // Approximate row height in pixels
+                    var iHeaderHeight = 80; // Approximate header/toolbar height
+                    var iCalculatedRows = Math.max(10, Math.floor((iContainerHeight - iHeaderHeight) / iRowHeight));
+                    oTable.setVisibleRowCount(iCalculatedRows);
+                }
+            }
+        },
         onRouteMatched: function () {
             this.setBusyOn();
             this.getLocalDataModel().setProperty("/treeTable", []);
@@ -27,13 +41,24 @@ sap.ui.define([
                     "data": {
                         "hash": this.hash
                     },
-                    "success": function (compTypeResponse) {
-                        var aCompTypes = Array.isArray(compTypeResponse && compTypeResponse.rows) ? compTypeResponse.rows : [];
+                    "success": function (response) {
+                        var aCompTypes = Array.isArray(response && response.rows) ? response.rows : [];
+                        console.log("Comp_Type Response - Total types:", aCompTypes.length);
+                        console.log("Comp_Type Full Response:", aCompTypes);
                         aCompTypes.forEach(function (oType) {
                             if (oType.CT_ID !== undefined && oType.CT_ID !== null) {
-                                this._compTypeMap[oType.CT_ID] = oType.Name || "";
+                                // Convert CT_ID to string to ensure consistency with row CT_ID values
+                                var sCtId = String(oType.CT_ID);
+                                // Store the name or generate a display value from Type_Description if available
+                                var sName = oType.Name || oType.Type_Description || oType.Description || oType.TypeName || "";
+                                this._compTypeMap[sCtId] = sName;
+                                // Log entries for asset types 2109 and 2296 specifically
+                                if (sCtId === "2109" || sCtId === "2296") {
+                                    console.log("Asset Type " + sCtId + ":", oType, "Name stored:", sName);
+                                }
                             }
                         }.bind(this));
+                        console.log("Comp_Type Map Built:", this._compTypeMap);
                         this._loadCompView();
                     }.bind(this),
                     "error": function () {
@@ -118,12 +143,23 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                    var aMissingAssetTypes = [];
+                    console.log("Root Assets Loaded - Count:", aRows.length);
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
-                        var sCtId = oRow.CT_ID || "";
-                        var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
+                        var sCtId = String(oRow.CT_ID || "");
+                        var sAssetType = this._compTypeMap[sCtId] || sCtId;
+                        // Track missing asset types for debugging
+                        if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
+                            aMissingAssetTypes.push(sCtId);
+                            console.log("Missing mapping for CT_ID:", sCtId, "Asset:", sAssetName, "Map keys:", Object.keys(this._compTypeMap));
+                        }
+                        // Log specific asset types
+                        if (sCtId === "2109" || sCtId === "2296") {
+                            console.log("Asset Type", sCtId, "-> Mapped to:", sAssetType, "Row CT_ID type:", typeof oRow.CT_ID, "Row:", oRow);
+                        }
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
@@ -131,9 +167,21 @@ sap.ui.define([
                             rows: aChildRows
                         });
                     }.bind(this));
+                    // Log missing asset types for debugging
+                    if (aMissingAssetTypes.length > 0) {
+                        console.warn("Asset types missing names: ", aMissingAssetTypes);
+                    } else {
+                        console.log("All asset types found in mapping");
+                    }
+                    // Sort rows by Name in ascending order
+                    aRows.sort(function(a, b) {
+                        var nameA = (a.Name || "").toLowerCase();
+                        var nameB = (b.Name || "").toLowerCase();
+                        if (nameA < nameB) return -1;
+                        if (nameA > nameB) return 1;
+                        return 0;
+                    });
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
-                    // Set fixed visible row count for proper scrolling with sticky headers
-                    this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
                     // Collapse all root nodes after the TreeTable has processed the new data
                     var oTreeTable = this.byId("TreeTableBasic");
                     if (oTreeTable) {
@@ -224,12 +272,23 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                    var aMissingAssetTypes = [];
+                    console.log("Child Assets Loaded for CV_ID:", sCvId, "Count:", aRows.length);
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
                         var aChildRows = bHasChild ? [{ rows: [] }] : [];
-                        var sCtId = oRow.CT_ID || "";
-                        var sAssetType = (sCtId && this._compTypeMap[sCtId]) ? this._compTypeMap[sCtId] : sCtId;
+                        var sCtId = String(oRow.CT_ID || "");
+                        var sAssetType = this._compTypeMap[sCtId] || sCtId;
+                        // Track missing asset types for debugging
+                        if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
+                            aMissingAssetTypes.push(sCtId);
+                            console.log("Missing mapping for CT_ID:", sCtId, "Asset:", sAssetName, "Map keys:", Object.keys(this._compTypeMap));
+                        }
+                        // Log specific asset types
+                        if (sCtId === "2109" || sCtId === "2296") {
+                            console.log("Asset Type", sCtId, "-> Mapped to:", sAssetType, "Row CT_ID type:", typeof oRow.CT_ID, "Row:", oRow);
+                        }
                         return Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
@@ -237,6 +296,18 @@ sap.ui.define([
                             rows: aChildRows
                         });
                     }.bind(this));
+                    // Log missing asset types for debugging
+                    if (aMissingAssetTypes.length > 0) {
+                        console.warn("Child - Asset types missing names: ", aMissingAssetTypes);
+                    }
+                    // Sort rows by Name in ascending order
+                    aRows.sort(function(a, b) {
+                        var nameA = (a.Name || "").toLowerCase();
+                        var nameB = (b.Name || "").toLowerCase();
+                        if (nameA < nameB) return -1;
+                        if (nameA > nameB) return 1;
+                        return 0;
+                    });
                     this.getLocalDataModel().setProperty(sPath, aRows);
                     this.setBusyOff();
                 }.bind(this),

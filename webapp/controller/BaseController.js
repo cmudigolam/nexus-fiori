@@ -87,7 +87,7 @@ sap.ui.define([
             var oLocalDataModel = this.getLocalDataModel();
             var self = this;
             $.ajax({
-                url:  self.isRunninglocally()+ "/bo/Info_Def/",
+                url: self.isRunninglocally()+ "/bo/Info_Def/",
                 method: "GET",
                 dataType: "json",
                 headers: {
@@ -140,7 +140,14 @@ sap.ui.define([
                                         aTiles.push(oTile);
                                     }
                                     return aTiles;
-                                }, []);
+                                }, [])
+                                .sort(function(a, b) {
+                                    var nameA = (a.Name || "").toLowerCase();
+                                    var nameB = (b.Name || "").toLowerCase();
+                                    if (nameA < nameB) return -1;
+                                    if (nameA > nameB) return 1;
+                                    return 0;
+                                });
                             var oCategoryMap = {};
                             aTiles.forEach(function (oTile) {
                                 var sCategory = oTile.Category || oTile.category || "Uncategorized";
@@ -152,7 +159,13 @@ sap.ui.define([
                             var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
                                 return {
                                     Category: sCategory,
-                                    tiles: oCategoryMap[sCategory]
+                                    tiles: oCategoryMap[sCategory].sort(function(a, b) {
+                                        var nameA = (a.Name || "").toLowerCase();
+                                        var nameB = (b.Name || "").toLowerCase();
+                                        if (nameA < nameB) return -1;
+                                        if (nameA > nameB) return 1;
+                                        return 0;
+                                    })
                                 };
                             });
                             oLocalDataModel.setProperty("/detailTiles", aTiles);
@@ -176,7 +189,7 @@ sap.ui.define([
         getoHashToken: function () {
             var self = this;
             return $.ajax({
-                // 
+                // self.isRunninglocally()+ 
                 "url":  self.isRunninglocally()+ "/security/login",
                 "method": "GET",
                 "success": function (result, xhr, successData) {

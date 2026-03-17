@@ -98,6 +98,26 @@
                     </uxap:ObjectPageSubSection>
                 </uxap:subSections>
             </uxap:ObjectPageSection>
+            <uxap:ObjectPageSection title="SAP DATA">
+                <uxap:subSections>
+                    <uxap:ObjectPageSubSection title="SAP DATA">
+                        <uxap:blocks>
+                            <FlexBox class="assetTileGrid" wrap="Wrap" justifyContent="Start" alignItems="Start">
+                                <VBox class="assetTileWrapper">
+                                    <GenericTile header="{i18n>technicalObject}" class="assetDetailTile" press="onSAPDATATilePress">
+                                        <customData>
+                                            <core:CustomData key="dashboardId" value="94" />
+                                        </customData>
+                                        <!--TileContent>
+                                            <ImageContent src="sap-icon://accidental-leave" />
+                                        </TileContent!-->
+                                    </GenericTile>
+                                </VBox>
+                            </FlexBox>
+                        </uxap:blocks>
+                    </uxap:ObjectPageSubSection>
+                </uxap:subSections>
+            </uxap:ObjectPageSection>
         </uxap:sections>
         <uxap:footer>
             <OverflowToolbar visible="false">
