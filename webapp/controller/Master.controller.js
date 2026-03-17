@@ -195,10 +195,7 @@ sap.ui.define([
                             oTreeTable.collapseAll();
                             // Auto-select the first row after tree table is rendered
                             if (aRows.length > 0) {
-                                var self = this;
-                                setTimeout(function() {
-                                    self._selectFirstRow(oTreeTable, aRows[0]);
-                                }, 100);
+                                this._selectFirstRow(oTreeTable, aRows[0]);
                             }
                         }.bind(this));
                     }         
