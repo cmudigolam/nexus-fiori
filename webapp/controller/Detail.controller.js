@@ -41,6 +41,53 @@ sap.ui.define([
             this.setBusyOff();
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
+            
+            // If no asset is selected, select the first one by default
+            if (!oSelectedNode) {
+                var aNodeInfoArray = oLocalDataModel.getProperty("/nodeInfoArray");
+                console.log("Detail onRouteMatched - selectedNodeData is null");
+                console.log("nodeInfoArray length:", aNodeInfoArray ? aNodeInfoArray.length : 0);
+                
+                if (aNodeInfoArray && aNodeInfoArray.length > 0) {
+                    oSelectedNode = aNodeInfoArray[0];
+                    oLocalDataModel.setProperty("/selectedNodeData", oSelectedNode);
+                    console.log("First asset auto-selected:", oSelectedNode);
+                    
+                    // Update breadcrumb for the first asset
+                    this.updateBreadcrumb();
+                    
+                    // Fetch detail tiles for the first asset
+                    if (oSelectedNode.CT_ID) {
+                        var sHash = oLocalDataModel.getProperty("/HashToken");
+                        console.log("Fetching tiles for first asset - CT_ID:", oSelectedNode.CT_ID, "Component_ID:", oSelectedNode.Component_ID);
+                        this.fetchDetailTiles(oSelectedNode.CT_ID, oSelectedNode.Component_ID, sHash);
+                    }
+                } else {
+                    console.log("No nodeInfoArray available yet");
+                    // Set up a listener to auto-select when data becomes available
+                    oLocalDataModel.attachPropertyChange(function (oEvent) {
+                        if (oEvent.getParameter("path") === "/nodeInfoArray") {
+                            var aNewArray = oEvent.getParameter("value");
+                            if (aNewArray && aNewArray.length > 0) {
+                                var oFirstNode = aNewArray[0];
+                                var oCurrentSelected = oLocalDataModel.getProperty("/selectedNodeData");
+                                if (!oCurrentSelected) {
+                                    oLocalDataModel.setProperty("/selectedNodeData", oFirstNode);
+                                    console.log("Asset auto-selected after data loaded:", oFirstNode);
+                                    this.updateBreadcrumb();
+                                    if (oFirstNode.CT_ID) {
+                                        var sHash = oLocalDataModel.getProperty("/HashToken");
+                                        this.fetchDetailTiles(oFirstNode.CT_ID, oFirstNode.Component_ID, sHash);
+                                    }
+                                }
+                                // Remove this listener after it fires once
+                                oLocalDataModel.detachPropertyChange(arguments.callee);
+                            }
+                        }
+                    }.bind(this));
+                }
+            }
+            
             // Update share URL in model for tooltip binding
             if (oSelectedNode && oSelectedNode.VN_ID) {
                 oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.VN_ID);
@@ -191,6 +238,9 @@ sap.ui.define([
                 return;
             }
 
+            // Get the tile title/name for the dialog header
+            var sTileTitle = oContext.getProperty("Name") || sTableName;
+
             var oLocalDataModel = this.getLocalDataModel();
             var sHash = oLocalDataModel.getProperty("/HashToken");
             this.setBusyOn();
@@ -206,7 +256,7 @@ sap.ui.define([
                     "success": function (response) {
                         oLocalDataModel.setProperty("/selectedTableName", sTableName);
                         oLocalDataModel.setProperty("/selectedTableData", response);
-                        this.openDynamicFormDialog(sTableName, response);
+                        this.openDynamicFormDialog(sTableName, response, sTileTitle);
                         this.setBusyOff();
                     }.bind(this),
                     "error": function () {
@@ -232,8 +282,86 @@ sap.ui.define([
                 MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
             });
         },
+        onSAPDATATilePress: function (oEvent) {
+            var self = this;
+            var oLocalDataModel = this.getLocalDataModel();
+            var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
+            var sHash = oLocalDataModel.getProperty("/HashToken");
 
-        openDynamicFormDialog: function (sTableName, oFormData) {
+            if (!oSelectedNode || !oSelectedNode.Component_ID) {
+                MessageToast.show(this.getResourceBundle().getText("msgNoAssetSelected"));
+                return;
+            }
+
+            var sComponentId = oSelectedNode.Component_ID;
+
+            // Fetch external references for this component
+            var fnFetchExternalReferences = function (sResolvedHash) {
+                self.setBusyOn();
+                $.ajax({
+                    "url": self.isRunninglocally() + "/bo/External_References/" + encodeURIComponent(sComponentId),
+                    "method": "GET",
+                    "dataType": "json",
+                    "data": {
+                        "hash": sResolvedHash
+                    },
+                    "success": function (response) {
+                        console.log("External_References Response:", response);
+                        
+                        // Extract data from response
+                        var oRecord = response;
+                        if (Array.isArray(response.rows) && response.rows.length > 0) {
+                            oRecord = response.rows[0];
+                        } else if (Array.isArray(response) && response.length > 0) {
+                            oRecord = response[0];
+                        }
+
+                        var sFunctionalLocation = oRecord.Functional_Location || "";
+                        var sExternalReferenceId = oRecord.External_Reference_ID || "";
+                        var sEquipmentId = oRecord.EquipementID || "";
+
+                        console.log("Extracted values:");
+                        console.log("  Functional_Location:", sFunctionalLocation);
+                        console.log("  External_Reference_ID:", sExternalReferenceId);
+                        console.log("  EquipementID:", sEquipmentId);
+
+                        // Navigate to SAP with the extracted values
+                        var sUrl = "https://pipl-sapa23.pilogcloud.com:8100/sap/bc/ui2/flp?sap-client=100&sap-language=EN#MaintenanceObject-displayFactSheet";
+                        if (sEquipmentId) {
+                            sUrl += "&/C_ObjPgTechnicalObject(TechObjIsEquipOrFuncnlLoc='EAMS_EQUI',TechnicalObject=%27" + encodeURIComponent(sExternalReferenceId) + "%27)";
+                        } else if (sFunctionalLocation) {
+                            sUrl += "&/C_ObjPgTechnicalObject(TechObjIsEquipOrFuncnlLoc='EAMS_FL',TechnicalObject=%27" + encodeURIComponent(sExternalReferenceId) + "%27)";
+                        }
+                        
+                        window.open(sUrl, "_blank");
+                        self.setBusyOff();
+                    },
+                    "error": function () {
+                        MessageToast.show(self.getResourceBundle().getText("msgErrorFetchingExternalReferences"));
+                        self.setBusyOff();
+                    }
+                });
+            };
+
+            if (sHash) {
+                fnFetchExternalReferences(sHash);
+                return;
+            }
+
+            // If no hash available, fetch it first
+            this.getoHashToken().done(function (oResult) {
+                var sFetchedHash = oResult && oResult.hash;
+                if (!sFetchedHash) {
+                    MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
+                    return;
+                }
+                fnFetchExternalReferences(sFetchedHash);
+            }).fail(function () {
+                MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
+            });
+        },
+
+        openDynamicFormDialog: function (sTableName, oFormData, sTileTitle) {
 
             var oCategorizedFields = {};
             var aCategories = Array.isArray(oFormData && oFormData.categories) ? oFormData.categories : [];
@@ -285,9 +413,9 @@ sap.ui.define([
                 }
             });
             var self = this;
-            // Create dialog content model
+            // Create dialog content model with tile title as dialog title
             var oDialogModel = {
-                title: sTableName,
+                title: sTileTitle || sTableName,
                 formData: oFormData,
                 categorizedFields: oCategorizedFields
             };
@@ -342,7 +470,14 @@ sap.ui.define([
                 var aFormContent = [];
 
                 if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
-                    oCategorizedFields[oCategory.name].forEach(function (oField) {
+                    // Sort fields by formOrder before processing
+                    var aSortedFields = oCategorizedFields[oCategory.name].slice().sort(function (a, b) {
+                        var aOrder = a.formOrder !== undefined ? parseInt(a.formOrder) : 999999;
+                        var bOrder = b.formOrder !== undefined ? parseInt(b.formOrder) : 999999;
+                        return aOrder - bOrder;
+                    });
+                    
+                    aSortedFields.forEach(function (oField) {
                         // Determine visibility based on formVisible property from API metadata
                         var bVisible = oField.formVisible !== false;
 
@@ -367,7 +502,7 @@ sap.ui.define([
                         oInput.setVisible(bVisible);
                         // Store reference for later data population
                         var sFieldKey = oField.fieldName || oField.name;
-                        console.log("Creating field - fieldName:", oField.fieldName, "name:", oField.name, "using key:", sFieldKey, "lookupListId:", oField.lookupListId, "fieldTypeId:", oField.fieldTypeId);
+                        console.log("Creating field - fieldName:", oField.fieldName, "name:", oField.name, "using key:", sFieldKey, "lookupListId:", oField.lookupListId, "fieldTypeId:", oField.fieldTypeId, "formOrder:", oField.formOrder);
                         if (sFieldKey) {
                             self._fieldControlMap[sFieldKey] = oInput;
                         }

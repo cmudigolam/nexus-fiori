@@ -182,6 +182,12 @@ sap.ui.define([
                         return 0;
                     });
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
+                    
+                    // Populate nodeInfoArray with root nodes so they're available for auto-selection
+                    aRows.forEach(function(oRow) {
+                        this.addNodeToInfoArr(oRow);
+                    }.bind(this));
+                    
                     // Collapse all root nodes after the TreeTable has processed the new data
                     var oTreeTable = this.byId("TreeTableBasic");
                     if (oTreeTable) {
