@@ -18,7 +18,6 @@ sap.ui.define([
       this.oRouter.attachBeforeRouteMatched(this.onBeforeRouteMatched, this);
 
       var data = oStorage.get("appSessionData");
-      //console.log(data[0].TermsAndConditions); // storage
       
       // Navigate to Dashboard if no hash is present
       if (!content || content === "") {

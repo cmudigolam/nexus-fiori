@@ -45,13 +45,10 @@ sap.ui.define([
             // If no asset is selected, select the first one by default
             if (!oSelectedNode) {
                 var aNodeInfoArray = oLocalDataModel.getProperty("/nodeInfoArray");
-                console.log("Detail onRouteMatched - selectedNodeData is null");
-                console.log("nodeInfoArray length:", aNodeInfoArray ? aNodeInfoArray.length : 0);
                 
                 if (aNodeInfoArray && aNodeInfoArray.length > 0) {
                     oSelectedNode = aNodeInfoArray[0];
                     oLocalDataModel.setProperty("/selectedNodeData", oSelectedNode);
-                    console.log("First asset auto-selected:", oSelectedNode);
                     
                     // Update breadcrumb for the first asset
                     this.updateBreadcrumb();
@@ -59,11 +56,9 @@ sap.ui.define([
                     // Fetch detail tiles for the first asset
                     if (oSelectedNode.CT_ID) {
                         var sHash = oLocalDataModel.getProperty("/HashToken");
-                        console.log("Fetching tiles for first asset - CT_ID:", oSelectedNode.CT_ID, "Component_ID:", oSelectedNode.Component_ID);
                         this.fetchDetailTiles(oSelectedNode.CT_ID, oSelectedNode.Component_ID, sHash);
                     }
                 } else {
-                    console.log("No nodeInfoArray available yet");
                     // Set up a listener to auto-select when data becomes available
                     oLocalDataModel.attachPropertyChange(function (oEvent) {
                         if (oEvent.getParameter("path") === "/nodeInfoArray") {
@@ -73,7 +68,6 @@ sap.ui.define([
                                 var oCurrentSelected = oLocalDataModel.getProperty("/selectedNodeData");
                                 if (!oCurrentSelected) {
                                     oLocalDataModel.setProperty("/selectedNodeData", oFirstNode);
-                                    console.log("Asset auto-selected after data loaded:", oFirstNode);
                                     this.updateBreadcrumb();
                                     if (oFirstNode.CT_ID) {
                                         var sHash = oLocalDataModel.getProperty("/HashToken");
@@ -135,94 +129,6 @@ sap.ui.define([
             var sCtId = oNode.CT_ID;
 
             this.fetchDetailTiles(sCtId, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
-
-            // First service call: get TD_IDs by CT_ID
-            // $.ajax({
-            //     "url": "/bo/Info_Def/",
-            //     "method": "GET",
-            //     "dataType": "json",
-            //     "headers": {
-            //         "X-NEXUS-Filter": '{"where":[{"field":"CT_ID","method":"eq","value":"' + sCtId + '"}]}'
-            //     },
-            //     "data": {
-            //         "hash": this.getLocalDataModel().getProperty("/HashToken")
-            //     },
-            //     "success": function (response) {
-            //         var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-            //         var aTdIds = aRows.map(function (row) {
-            //             return row.TD_ID;
-            //         }).filter(function (id) {
-            //             return id !== undefined && id !== null;
-            //         });
-            //         if (aTdIds.length === 0) {
-            //             oLocalDataModel.setProperty("/detailTiles", []);
-            //             oLocalDataModel.setProperty("/detailTileGroups", []);
-            //             this.setBusyOff();
-            //             return;
-            //         }
-            //         // Second service call: get table definitions by TD_IDs
-            //         $.ajax({
-            //             "url": "/bo/Table_Def/",
-            //             "method": "GET",
-            //             "dataType": "json",
-            //             "headers": {
-            //                 "X-NEXUS-Filter": '{"where":[{"field":"TD_ID","method":"in","items":[' + aTdIds.join(",") + ']}]}'
-            //             },
-            //             "data": {
-            //                 "hash": this.getLocalDataModel().getProperty("/HashToken")
-            //             },
-            //             "success": function (response2) {
-            //                 var iconList = [
-            //                     "sap-icon://home",
-            //                     "sap-icon://account",
-            //                     "sap-icon://employee",
-            //                     "sap-icon://settings",
-            //                     "sap-icon://document",
-            //                     "sap-icon://calendar",
-            //                     "sap-icon://customer",
-            //                     "sap-icon://task",
-            //                     "sap-icon://attachment",
-            //                     "sap-icon://search",
-            //                     "sap-icon://activities",
-            //                     "sap-icon://activity-items"
-            //                 ];
-            //                 var tdIdToIcon = {};
-            //                 aTdIds.forEach(function (tdId, idx) {
-            //                     tdIdToIcon[tdId] = iconList[idx] || "sap-icon://hint";
-            //                 });
-            //                 var aTiles = (Array.isArray(response2 && response2.rows) ? response2.rows : []).map(function (tile) {
-            //                     tile.icon = tdIdToIcon[tile.TD_ID] || "sap-icon://hint";
-            //                     return tile;
-            //                 });
-            //                 var oCategoryMap = {};
-            //                 aTiles.forEach(function (oTile) {
-            //                     var sCategory = oTile.Category || oTile.category || "Uncategorized";
-            //                     if (!oCategoryMap[sCategory]) {
-            //                         oCategoryMap[sCategory] = [];
-            //                     }
-            //                     oCategoryMap[sCategory].push(oTile);
-            //                 });
-            //                 var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
-            //                     return {
-            //                         Category: sCategory,
-            //                         tiles: oCategoryMap[sCategory]
-            //                     };
-            //                 });
-            //                 oLocalDataModel.setProperty("/detailTiles", aTiles);
-            //                 oLocalDataModel.setProperty("/detailTileGroups", aTileGroups);
-            //                 this.setBusyOff();
-            //             }.bind(this),
-            //             "error": function () {
-            //                 MessageToast.show("Error while fetching table definitions");
-            //                 this.setBusyOff();
-            //             }.bind(this)
-            //         });
-            //     }.bind(this),
-            //     "error": function () {
-            //         MessageToast.show("Error while fetching info definitions");
-            //         this.setBusyOff();
-            //     }.bind(this)
-            // });
         },
         onTilePress: function (oEvent) {
             var self = this;
@@ -247,7 +153,7 @@ sap.ui.define([
             var fnCallTableApi = function (sResolvedHash) {
                 this.setBusyOn();
                 $.ajax({
-                    "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName),
+                    "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -292,22 +198,18 @@ sap.ui.define([
                 MessageToast.show(this.getResourceBundle().getText("msgNoAssetSelected"));
                 return;
             }
-
             var sComponentId = oSelectedNode.Component_ID;
-
             // Fetch external references for this component
             var fnFetchExternalReferences = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": self.isRunninglocally() + "/bo/External_References/" + encodeURIComponent(sComponentId),
+                    "url": self.getCompleteURL() + "/bo/External_References/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
                         "hash": sResolvedHash
                     },
                     "success": function (response) {
-                        console.log("External_References Response:", response);
-                        
                         // Extract data from response
                         var oRecord = response;
                         if (Array.isArray(response.rows) && response.rows.length > 0) {
@@ -319,12 +221,6 @@ sap.ui.define([
                         var sFunctionalLocation = oRecord.Functional_Location || "";
                         var sExternalReferenceId = oRecord.External_Reference_ID || "";
                         var sEquipmentId = oRecord.EquipementID || "";
-
-                        console.log("Extracted values:");
-                        console.log("  Functional_Location:", sFunctionalLocation);
-                        console.log("  External_Reference_ID:", sExternalReferenceId);
-                        console.log("  EquipementID:", sEquipmentId);
-
                         // Navigate to SAP with the extracted values
                         var sUrl = "https://pipl-sapa23.pilogcloud.com:8100/sap/bc/ui2/flp?sap-client=100&sap-language=EN#MaintenanceObject-displayFactSheet";
                         if (sEquipmentId) {
@@ -332,8 +228,12 @@ sap.ui.define([
                         } else if (sFunctionalLocation) {
                             sUrl += "&/C_ObjPgTechnicalObject(TechObjIsEquipOrFuncnlLoc='EAMS_FL',TechnicalObject=%27" + encodeURIComponent(sExternalReferenceId) + "%27)";
                         }
-                        
-                        window.open(sUrl, "_blank");
+                        if(sEquipmentId == "" && sFunctionalLocation == ""){
+                            MessageToast.show(self.getResourceBundle().getText("msgNoValidReference"));
+                            self.setBusyOff();
+                            return;
+                        }
+                        window.open(sUrl, "_self");
                         self.setBusyOff();
                     },
                     "error": function () {
@@ -360,7 +260,6 @@ sap.ui.define([
                 MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
             });
         },
-
         openDynamicFormDialog: function (sTableName, oFormData, sTileTitle) {
 
             var oCategorizedFields = {};
@@ -451,7 +350,6 @@ sap.ui.define([
                 self._loadFormData(sTableName);
             }
         },
-
         buildFormContent: function (oFormData, oCategorizedFields) {
             var oTabBar = this._oFormDialog.getContent()[0];
             oTabBar.destroyItems();
@@ -502,7 +400,6 @@ sap.ui.define([
                         oInput.setVisible(bVisible);
                         // Store reference for later data population
                         var sFieldKey = oField.fieldName || oField.name;
-                        console.log("Creating field - fieldName:", oField.fieldName, "name:", oField.name, "using key:", sFieldKey, "lookupListId:", oField.lookupListId, "fieldTypeId:", oField.fieldTypeId, "formOrder:", oField.formOrder);
                         if (sFieldKey) {
                             self._fieldControlMap[sFieldKey] = oInput;
                         }
@@ -543,7 +440,6 @@ sap.ui.define([
                 oTabBar.addItem(oTab);
             });
         },
-
         createFieldControl: function (oField) {
             // If field has a lookupListId, create a Select and load lookup items
             if (oField.lookupListId) {
@@ -591,7 +487,6 @@ sap.ui.define([
                     });
             }
         },
-
         _loadLookupItems: function (oSelect, sLookupListId) {
             var oLocalDataModel = this.getLocalDataModel();
             var sHash = oLocalDataModel.getProperty("/HashToken");
@@ -599,7 +494,7 @@ sap.ui.define([
 
             var fnFetch = function (sResolvedHash) {
                 $.ajax({
-                    "url": self.isRunninglocally()+ "/bo/Lookup_Item/",
+                    "url":  self.getCompleteURL()+"/bo/Lookup_Item/",
                     "method": "GET",
                     "dataType": "json",
                     "headers": {
@@ -611,14 +506,12 @@ sap.ui.define([
                     },
                     "success": function (response) {
                         var aItems = Array.isArray(response && response.rows) ? response.rows : [];
-                        console.log("Lookup_Item Response for LL_ID " + sLookupListId + ":", aItems);
                         oSelect.removeAllItems();
                         aItems.forEach(function (oItem) {
                             // Use LI_ID as the key (internal identifier stored in database)
                             // Use Value as the display text (what user sees)
                             var sKey = String(oItem.LI_ID || oItem.Value || "");
                             var sText = String(oItem.Value || oItem.Name || oItem.Description || "");
-                            console.log("Adding lookup item - LI_ID (Key):", sKey, "Value (Text):", sText, "Full item:", oItem);
                             oSelect.addItem(new Item({
                                 key: sKey,
                                 text: sText
@@ -626,16 +519,13 @@ sap.ui.define([
                         });
                         
                         // After items are loaded, apply any pending value selection
-                        console.log("Lookup items loaded. Checking for pending values...");
                         self._applyPendingComboBoxValues();
                         
                         // Decrement pending lookup count
                         self._pendingLookupCount--;
-                        console.log("Lookup completed. Pending lookups remaining:", self._pendingLookupCount);
                         
                         // If all lookups are done, load form data
                         if (self._pendingLookupCount === 0 && self._formDataTableName) {
-                            console.log("All lookups completed. Loading form data...");
                             self._loadFormData(self._formDataTableName);
                         }
                     },
@@ -644,11 +534,9 @@ sap.ui.define([
                         
                         // Decrement pending lookup count even on error
                         self._pendingLookupCount--;
-                        console.log("Lookup failed. Pending lookups remaining:", self._pendingLookupCount);
                         
                         // If all lookups are done (or failed), load form data
                         if (self._pendingLookupCount === 0 && self._formDataTableName) {
-                            console.log("All lookups completed (some failed). Loading form data...");
                             self._loadFormData(self._formDataTableName);
                         }
                     }
@@ -667,7 +555,6 @@ sap.ui.define([
                 }
             });
         },
-
         getFieldInputType: function (oField) {
             // Map field types to SAP UI5 input types
             if (oField.fieldTypeId === 9) {
@@ -680,7 +567,6 @@ sap.ui.define([
                 return "Text"; // Default to text
             }
         },
-
         _loadFormData: function (sTableName) {
             var oLocalDataModel = this.getLocalDataModel();
             var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
@@ -695,11 +581,10 @@ sap.ui.define([
                 }
                 return;
             }
-
             var fnFetchData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
+                    "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -728,12 +613,10 @@ sap.ui.define([
                     }
                 });
             };
-
             if (sHash) {
                 fnFetchData(sHash);
                 return;
             }
-
             this.getoHashToken().done(function (oResult) {
                 var sFetchedHash = oResult && oResult.hash;
                 if (!sFetchedHash) {
@@ -753,7 +636,6 @@ sap.ui.define([
                 }
             });
         },
-
         _validateFieldVisibility: function (sComponentId, oRecord, sHash,sTableName) {
             var self = this;
             // Show busy indicator on dialog
@@ -761,7 +643,7 @@ sap.ui.define([
                 this._oFormDialog.setBusy(true);
             }
             $.ajax({
-                "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
+                "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
                 "method": "POST",
                 "contentType": "application/json",
                 "dataType": "json",
@@ -786,7 +668,6 @@ sap.ui.define([
                 }
             });
         },
-
         _updateFieldVisibilityFromValidation: function (oValidationResponse) {
             if (!oValidationResponse || !this._fieldControlMap) {
                 return;
@@ -805,8 +686,6 @@ sap.ui.define([
             // Check if updateStates is available in the response
             var oUpdateStates = oValidationResponse.updateStates;
             var bHasUpdateStates = oUpdateStates && typeof oUpdateStates === "object";
-            console.log("UpdateStates structure:", oUpdateStates);
-            console.log("UpdateStates is array?", Array.isArray(oUpdateStates));
 
             var self = this;
             var iVisibleFieldCount = 0;
@@ -821,7 +700,6 @@ sap.ui.define([
 
                 // Rule 1: If formVisible is false from metadata, field is HIDDEN
                 if (oField.formVisible === false) {
-                    console.log("Field", sFieldKey, "-> formVisible=false, HIDDEN");
                     oControl.setVisible(false);
                     return;
                 }
@@ -846,21 +724,17 @@ sap.ui.define([
                         if (oFieldUpdateState.visible !== undefined) {
                             // visible property exists -> use its value
                             bFieldVisible = oFieldUpdateState.visible === true;
-                            console.log("Field", sFieldKey, "-> found in updateStates, visible=" + oFieldUpdateState.visible + ", VISIBILITY=" + bFieldVisible);
                         } else {
                             // visible property doesn't exist -> default to visible
                             bFieldVisible = true;
-                            console.log("Field", sFieldKey, "-> found in updateStates but no visible property, default VISIBLE");
                         }
                     } else {
                         // Field NOT found in updateStates -> default to visible
                         bFieldVisible = true;
-                        console.log("Field", sFieldKey, "-> NOT found in updateStates, default VISIBLE");
                     }
                 } else {
                     // No updateStates in response -> default to visible
                     bFieldVisible = true;
-                    console.log("Field", sFieldKey, "-> no updateStates, default VISIBLE");
                 }
                 
                 oControl.setVisible(bFieldVisible);
@@ -881,11 +755,10 @@ sap.ui.define([
                 }
             }
         },
-
         _checkPermissions: function (sProductValue, sHash) {
             var self = this;
             $.ajax({
-                "url": self.isRunninglocally()+ "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
+                "url":  self.getCompleteURL()+"/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -905,8 +778,6 @@ sap.ui.define([
                             sPermissions = response.data["@permissions"];
                         }
                     }
-                    console.log("Lookup_Item response:", JSON.stringify(response));
-                    console.log("Resolved @permissions:", sPermissions);
                     if (sPermissions === "read") {
                         self._setFormReadOnly(true);
                     } else {
@@ -921,7 +792,6 @@ sap.ui.define([
                 }
             });
         },
-
         _setFormReadOnly: function (bReadOnly) {
             return; // Temporarily disable read-only logic until permissions are properly set up
             // Set all form field controls to read-only / non-editable
@@ -935,7 +805,6 @@ sap.ui.define([
                     }
                 }.bind(this));
             }
-
             // Show or hide the Save button
             if (this._oFormDialog) {
                 var oSaveButton = this._oFormDialog.getBeginButton();
@@ -944,7 +813,6 @@ sap.ui.define([
                 }
             }
         },
-
         _populateFormFields: function (oData) {
             if (!oData || !this._fieldControlMap) {
                 return;
@@ -957,12 +825,6 @@ sap.ui.define([
             } else if (Array.isArray(oData) && oData.length > 0) {
                 oRecord = oData[0];
             }
-
-            console.log("=== POPULATE FORM FIELDS ===");
-            console.log("Record data:", JSON.stringify(oRecord, null, 2));
-            console.log("Field Control Map has keys:", Object.keys(this._fieldControlMap));
-            console.log("============================");
-
             // Initialize pending ComboBox values
             if (!this._pendingComboBoxValues) {
                 this._pendingComboBoxValues = {};
@@ -985,10 +847,6 @@ sap.ui.define([
                     oControl.setSelected(!!vValue);
                 } else if (oControl.isA("sap.m.Select")) {
                     var sValueStr = String(vValue).trim();
-                    console.log("=== POPULATE Select ===");
-                    console.log("Field Key:", sFieldKey);
-                    console.log("Raw value from record:", vValue);
-                    console.log("Normalized value:", sValueStr);
                     
                     // Store this value as pending - it will be applied after items load
                     self._pendingComboBoxValues[sFieldKey] = {
@@ -998,27 +856,38 @@ sap.ui.define([
                     
                     // Get all items in the select
                     var aItems = oControl.getItems();
-                    console.log("Select has", aItems.length, "items currently");
                     
                     if (aItems && aItems.length > 0) {
                         // Items already loaded, apply immediately
-                        console.log("Items available, applying value immediately");
                         self._applyComboBoxValue(oControl, sFieldKey, sValueStr);
                     } else {
                         // Items not loaded yet - they will be applied when _applyPendingComboBoxValues is called
-                        console.log("Items not loaded yet, storing as pending");
                     }
-                    console.log("==========================");
                 }
             });
         },
-
         onFormDialogClose: function () {
             if (this._oFormDialog) {
                 this._oFormDialog.setBusy(false);
                 this._clearFieldValidationErrors();
                 this._oFormDialog.close();
             }
+        },
+
+        onOpenNexuslink: function () {
+            var oLocalDataModel = this.getLocalDataModel();
+            var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
+
+            if (!oSelectedNode || !oSelectedNode.VN_ID) {
+                MessageToast.show(this.getResourceBundle().getText("msgNoAssetSelected"));
+                return;
+            }
+
+            var sVnId = oSelectedNode.VN_ID;
+            var sAigId = oSelectedNode.Component_ID || "";
+
+            var sUrl = "https://trial.nexusic.com/?navigateTo=Asset&searchKey=VN_ID&searchValue=" + encodeURIComponent(sVnId) + "&tab=AIG&aigId=" + encodeURIComponent(sAigId);
+            window.open(sUrl, "_blank");
         },
 
         _showFieldValidationErrors: function (aInvalidFields) {
@@ -1102,26 +971,13 @@ sap.ui.define([
 
         _applyComboBoxValue: function (oSelect, sFieldKey, sValue) {
             var aItems = oSelect.getItems();
-            console.log("_applyComboBoxValue for field:", sFieldKey, "value:", sValue);
             
             if (!aItems || aItems.length === 0) {
-                console.log("No items available in Select");
                 return;
             }
             
             // Normalize the value for comparison
             var sNormalizedValue = String(sValue).trim();
-            
-            // Log all available keys and texts
-            var aAvailableKeys = [];
-            aItems.forEach(function(oItem, idx) {
-                aAvailableKeys.push({
-                    key: oItem.getKey(),
-                    text: oItem.getText()
-                });
-            });
-            console.log("Available items:", aAvailableKeys);
-            console.log("Looking for value:", sNormalizedValue);
             
             // Priority 1: Try to match by display text (Value field from lookup) since that's what gets stored
             var matchedKey = null;
@@ -1131,7 +987,6 @@ sap.ui.define([
                 // Try text match first (this is what the database stores)
                 if (sItemText === sNormalizedValue) {
                     matchedKey = aItems[i].getKey();
-                    console.log("✓ Found matching TEXT (Value), setting selected key:", matchedKey, "text:", sItemText);
                     break;
                 }
             }
@@ -1144,7 +999,6 @@ sap.ui.define([
                     // Try key match (including numeric comparison)
                     if (sItemKey === sNormalizedValue || parseInt(sItemKey) === parseInt(sNormalizedValue)) {
                         matchedKey = aItems[i].getKey();
-                        console.log("✓ Found matching KEY (LI_ID), setting selected key:", matchedKey);
                         break;
                     }
                 }
@@ -1152,47 +1006,34 @@ sap.ui.define([
             
             if (matchedKey !== null) {
                 oSelect.setSelectedKey(matchedKey);
-            } else {
-                console.log("✗ No matching value found for:", sNormalizedValue);
-                console.log("Available items:", aAvailableKeys);
             }
         },
 
         _applyPendingComboBoxValues: function () {
-            console.log("=== APPLYING PENDING ComboBox VALUES ===");
             if (!this._pendingComboBoxValues || Object.keys(this._pendingComboBoxValues).length === 0) {
-                console.log("No pending values to apply");
-                console.log("=======================================");
                 return;
             }
             
             var self = this;
             Object.keys(this._pendingComboBoxValues).forEach(function (sFieldKey) {
                 var oPending = self._pendingComboBoxValues[sFieldKey];
-                console.log("Applying pending value for field:", sFieldKey, "value:", oPending.value);
                 self._applyComboBoxValue(oPending.control, sFieldKey, oPending.value);
             });
-            
             // Clear pending values after applying
             this._pendingComboBoxValues = {};
-            console.log("=======================================");
         },
-
         onFormSave: function () {
             var oLocalDataModel = this.getLocalDataModel();
             var sTableName = oLocalDataModel.getProperty("/selectedTableName");
             var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
             var sHash = oLocalDataModel.getProperty("/HashToken");
             var self = this;
-
             if (!sTableName || !sComponentId) {
                 MessageToast.show(this.getResourceBundle().getText("msgMissingTableOrComponent"));
                 return;
             }
-
             // Clear previous validation errors
             self._clearFieldValidationErrors();
-
             // Perform mandatory field validation
             var aValidationErrors = self._validateMandatoryFields();
             if (aValidationErrors.length > 0) {
@@ -1200,7 +1041,6 @@ sap.ui.define([
                 MessageToast.show(self.getResourceBundle().getText("msgFieldsRequireAttention", [aValidationErrors.length]));
                 return;
             }
-
             // Collect form field values from _fieldControlMap (only non-empty values)
             var oPayload = {};
             if (this._fieldControlMap) {
@@ -1228,38 +1068,20 @@ sap.ui.define([
                         var oSelectedItem = oControl.getSelectedItem();
                         var sSelectedText = oSelectedItem ? oSelectedItem.getText() : "";
                         
-                        console.log("=== Select Extract ===");
-                        console.log("Field Key:", sFieldKey);
-                        console.log("Selected Key (LI_ID):", sSelectedKey);
-                        console.log("Selected Text (Value):", sSelectedText);
-                        console.log("Selected Item:", oSelectedItem);
-                        
                         // Post the selected text/value (not the LI_ID) - this is what the database expects
                         if (sSelectedText !== "" && sSelectedText !== undefined) {
                             oPayload[sFieldKey] = sSelectedText;
-                            console.log("✓ Posting field:", sFieldKey, "= value:", sSelectedText);
                         } else if (sSelectedKey !== "" && sSelectedKey !== undefined) {
                             oPayload[sFieldKey] = sSelectedKey;
-                            console.log("✓ Posting field:", sFieldKey, "= key value:", sSelectedKey);
-                        } else {
-                            console.log("✗ No value selected for field:", sFieldKey);
                         }
-                        console.log("======================");
                     }
                 });
             }
             self.setBusyOn();
             var fnPostData = function (sResolvedHash) {
                 self.setBusyOn();
-                console.log("=== FORM SAVE DEBUG ===");
-                console.log("Table:", sTableName);
-                console.log("Component ID:", sComponentId);
-                console.log("Field Control Map Keys:", Object.keys(self._fieldControlMap));
-                console.log("Payload to post:", JSON.stringify(oPayload, null, 2));
-                console.log("Payload keys:", Object.keys(oPayload));
-                console.log("========================");
                 $.ajax({
-                    "url": self.isRunninglocally()+ "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
+                    "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
                     "method": "POST",
                     "contentType": "application/json",
                     "dataType": "json",
@@ -1279,11 +1101,6 @@ sap.ui.define([
                     },
                     "error": function (jqXHR) {
                         var sMsg = self.getResourceBundle().getText("msgErrorSavingFormData");
-                        console.error("=== FORM SAVE ERROR ===");
-                        console.error("HTTP Status:", jqXHR.status);
-                        console.error("Payload sent:", JSON.stringify(oPayload, null, 2));
-                        console.error("Response:", jqXHR.responseText);
-                        console.error("=======================");
                         try {
                             var oErr = JSON.parse(jqXHR.responseText);
                             // Handle structured validation errors
@@ -1297,7 +1114,6 @@ sap.ui.define([
                             sMsg = jqXHR.responseText || sMsg;
                         }
                         MessageToast.show(sMsg);
-                        console.error("Save error:", jqXHR.status, jqXHR.responseText);
                         self.setBusyOff();
                     }
                 });
@@ -1307,7 +1123,6 @@ sap.ui.define([
                 fnPostData(sHash);
                 return;
             }
-
             this.getoHashToken().done(function (oResult) {
                 var sFetchedHash = oResult && oResult.hash;
                 if (!sFetchedHash) {
@@ -1319,10 +1134,6 @@ sap.ui.define([
                 MessageToast.show(self.getResourceBundle().getText("msgUnableToFetchHash"));
             });
         },
-
-
-
-
         onStaticTilePress: function (oEvent) {
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");

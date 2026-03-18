@@ -1,5 +1,15 @@
 <core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m" xmlns:f="sap.ui.layout.form">
-    <Dialog id="idDynamicFormDialog" title="{FormData>/title}" contentHeight="700px" contentWidth="900px" resizable="true" verticalScrolling="false">
+    <Dialog id="idDynamicFormDialog" contentHeight="700px" contentWidth="900px" resizable="true" verticalScrolling="false">
+        <customHeader>
+            <Bar>
+                <contentLeft>
+                    <Title text="{FormData>/title}" level="H4" />
+                </contentLeft>
+                <contentRight>
+                    <Button text="Nexus" press="onOpenNexuslink" type="Transparent" icon="sap-icon://chain-link" />
+                </contentRight>
+            </Bar>
+        </customHeader>
         <content>
             <IconTabBar id="idFormTabs" expandable="false" stretchContentHeight="true">
                 <items>
@@ -10,11 +20,9 @@
                 </items>
             </IconTabBar>
         </content>
-        <beginButton>
+        <buttons>
             <Button text="{i18n>btnSave}" press="onFormSave" type="Emphasized" />
-        </beginButton>
-        <endButton>
             <Button text="{i18n>btnClose}" press="onFormDialogClose" />
-        </endButton>
+        </buttons>
     </Dialog>
 </core:FragmentDefinition>

@@ -87,7 +87,7 @@ sap.ui.define([
             var oLocalDataModel = this.getLocalDataModel();
             var self = this;
             $.ajax({
-                url: self.isRunninglocally()+ "/bo/Info_Def/",
+                url: self.getCompleteURL()+ "/bo/Info_Def/",
                 method: "GET",
                 dataType: "json",
                 headers: {
@@ -124,7 +124,7 @@ sap.ui.define([
 
                     // Second service call: get table definitions by TD_IDs
                     $.ajax({
-                        url:  self.isRunninglocally()+ "/bo/Table_Def/",
+                        url:  self.getCompleteURL()+ "/bo/Table_Def/",
                         method: "GET",
                         dataType: "json",
                         headers: {
@@ -190,7 +190,7 @@ sap.ui.define([
             var self = this;
             return $.ajax({
                 // self.isRunninglocally()+ 
-                "url":  self.isRunninglocally()+ "/security/login",
+                "url":  self.getCompleteURL()+ "/security/login",
                 "method": "GET",
                 "success": function (result, xhr, successData) {
                     this.getLocalDataModel().setProperty("/HashToken", result.hash);

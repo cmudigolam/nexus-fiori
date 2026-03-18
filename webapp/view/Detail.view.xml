@@ -19,7 +19,7 @@
                 <uxap:navigationActions>
 					<OverflowToolbarButton type="Transparent" icon="sap-icon://full-screen" press="handleFullScreen" id="enterFullScreenBtnMid" tooltip="{i18n>tooltipEnterFullScreen}" visible="{= ${/actionButtonsInfo/midColumn/fullScreen} !== null }" />
 					<OverflowToolbarButton type="Transparent" icon="sap-icon://exit-full-screen" press="handleExitFullScreen" id="exitFullScreenBtnMid" tooltip="{i18n>tooltipExitFullScreen}" visible="{= ${/actionButtonsInfo/midColumn/exitFullScreen} !== null }" />
-					<OverflowToolbarButton type="Transparent" icon="sap-icon://decline" press="handleClose" tooltip="{i18n>tooltipCloseColumn}" visible="{= ${/actionButtonsInfo/midColumn/closeColumn} !== null }" />
+					<OverflowToolbarButton type="Transparent" icon="sap-icon://decline" press="handleClose" tooltip="{i18n>tooltipCloseColumn}" visible="false" />
                 </uxap:navigationActions>
             </uxap:ObjectPageDynamicHeaderTitle>
         </uxap:headerTitle>
