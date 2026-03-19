@@ -36,6 +36,39 @@ sap.ui.define([
                 });
             }, this);
             sap.ui.getCore().getEventBus().subscribe("Detail", "UpdateBreadcrumb", this.updateBreadcrumb, this);
+            // Initialize for caching previous node and building node index
+            this._sPreviousSelectedNodeId = null;
+            this._oNodeInfoIndex = {};
+            this._bNodeInfoIndexValid = false; // Track index validity with O(1) flag instead of Object.keys()
+            
+            // Monitor nodeInfoArray for changes to invalidate index
+            var oLocalDataModel = this.getLocalDataModel();
+            this._fnPropertyChangeListener = function(oEvent) {
+                if (oEvent.getParameter("path") === "/nodeInfoArray") {
+                    // Invalidate index when nodeInfoArray changes (O(1) flag instead of reset)
+                    this._bNodeInfoIndexValid = false;
+                }
+            }.bind(this);
+            oLocalDataModel.attachPropertyChange(this._fnPropertyChangeListener);
+        },
+        
+        /**
+         * Build index map of Full_Location -> node for O(1) lookups
+         * @returns {Object} Object with Full_Location as key, node as value
+         */
+        _buildNodeInfoIndex: function() {
+            var oLocalDataModel = this.getLocalDataModel();
+            var aNodeInfoArray = oLocalDataModel.getProperty("/nodeInfoArray") || [];
+            var oIndex = {};
+            
+            aNodeInfoArray.forEach(function(oNode) {
+                var sFullLocation = this._getFullLocation(oNode);
+                if (sFullLocation) {
+                    oIndex[sFullLocation] = oNode;
+                }
+            }.bind(this));
+            
+            return oIndex;
         },
         onRouteMatched: function () {
             this.setBusyOff();
@@ -60,7 +93,7 @@ sap.ui.define([
                     }
                 } else {
                     // Set up a listener to auto-select when data becomes available
-                    oLocalDataModel.attachPropertyChange(function (oEvent) {
+                    this._fnDetailAutoSelectListener = function (oEvent) {
                         if (oEvent.getParameter("path") === "/nodeInfoArray") {
                             var aNewArray = oEvent.getParameter("value");
                             if (aNewArray && aNewArray.length > 0) {
@@ -75,10 +108,11 @@ sap.ui.define([
                                     }
                                 }
                                 // Remove this listener after it fires once
-                                oLocalDataModel.detachPropertyChange(arguments.callee);
+                                oLocalDataModel.detachPropertyChange(this._fnDetailAutoSelectListener);
                             }
                         }
-                    }.bind(this));
+                    }.bind(this);
+                    oLocalDataModel.attachPropertyChange(this._fnDetailAutoSelectListener);
                 }
             }
             
@@ -93,42 +127,73 @@ sap.ui.define([
         updateBreadcrumb: function () {
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
-            var aBreadcrumb = [];
-            var segments = [];
-            if (oSelectedNode && (oSelectedNode.Full_Location || oSelectedNode.Full_location || oSelectedNode.full_location || oSelectedNode.FullLocation)) {
-                var fullLocation = oSelectedNode.Full_Location || oSelectedNode.Full_location || oSelectedNode.full_location || oSelectedNode.FullLocation || "";
-                var segments = fullLocation ? fullLocation.split(" / ") : [];
-                segments.forEach(function(segment) {
-                    aBreadcrumb.push({
-                        name: segment
-                    });
-                });
+            
+            // Only rebuild breadcrumb if the selected node changed
+            var sCurrentNodeId = oSelectedNode && oSelectedNode.VN_ID;
+            if (sCurrentNodeId === this._sPreviousSelectedNodeId) {
+                return; // No change, skip rebuild
             }
+            
+            this._sPreviousSelectedNodeId = sCurrentNodeId;
+            
+            var aBreadcrumb = [];
+            if (oSelectedNode) {
+                var fullLocation = this._getFullLocation(oSelectedNode);
+                if (fullLocation) {
+                    // Build breadcrumb using shared utility method from BaseController
+                    aBreadcrumb = this._buildBreadcrumbSegments(fullLocation);
+                }
+            }
+            
             oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
+        },
+        
+        onExit: function() {
+            // Clean up all property change listeners to prevent memory leaks
+            var oLocalDataModel = this.getLocalDataModel();
+            if (oLocalDataModel) {
+                if (this._fnPropertyChangeListener) {
+                    oLocalDataModel.detachPropertyChange(this._fnPropertyChangeListener);
+                }
+                if (this._fnDetailAutoSelectListener) {
+                    oLocalDataModel.detachPropertyChange(this._fnDetailAutoSelectListener);
+                }
+            }
         },
 
         onBreadcrumbPress: function (oEvent) {
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
             var oData = oContext.getObject();
+            var sTargetFullLocation = oData.fullLocation;
+            
+            if (!sTargetFullLocation) {
+                return;
+            }
+            
             var oLocalDataModel = this.getLocalDataModel();
-            var nodeInfoArr = oLocalDataModel.getProperty("/nodeInfoArray") || [];
-            var oBreadcrumbs = oLocalDataModel.getProperty("/breadcrumb") || [];
-            // Find the index of the clicked breadcrumb
-            var idx = oBreadcrumbs.findIndex(function(b) { return b.name === oData.name; });
-            // Reconstruct the full_location up to this breadcrumb
-            var pathSoFar = oBreadcrumbs.slice(0, idx + 1).map(function(b) { return b.name; }).join(" / ");
-            // Find the node by full_location
-            var oNode = nodeInfoArr.find(function(n) { 
-                var fullLocation = n.Full_Location || n.Full_location || n.full_location || n.FullLocation || "";
-                return fullLocation === pathSoFar; 
-            });
+            
+            // Build or use cached index for O(1) lookup (O(1) validity check instead of Object.keys())
+            if (!this._bNodeInfoIndexValid) {
+                this._oNodeInfoIndex = this._buildNodeInfoIndex();
+                this._bNodeInfoIndexValid = true;
+            }
+            
+            // O(1) lookup instead of O(n) linear search
+            var oNode = this._oNodeInfoIndex[sTargetFullLocation];
+            
             if (!oNode || !oNode.CV_ID || !oNode.CT_ID) {
                 return;
             }
+            
             oLocalDataModel.setProperty("/selectedNodeData", oNode);
-            var sCtId = oNode.CT_ID;
-
-            this.fetchDetailTiles(sCtId, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
+            
+            // Tell Master to focus/select this node in the tree
+            sap.ui.getCore().getEventBus().publish("Master", "FocusNodeFromBreadcrumb", {
+                nodeData: oNode
+            });
+            
+            // Trigger same action as node selection
+            this.fetchDetailTiles(oNode.CT_ID, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
         },
         onTilePress: function (oEvent) {
             var self = this;
@@ -585,7 +650,7 @@ sap.ui.define([
                 self.setBusyOn();
                 $.ajax({
                     "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
-                    "method": "GET",
+                   "method": "GET",
                     "dataType": "json",
                     "data": {
                         "hash": sResolvedHash

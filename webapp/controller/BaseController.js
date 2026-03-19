@@ -82,6 +82,59 @@ sap.ui.define([
             return Prefix;
         },
 
+        /**
+         * Normalize Full_Location property from various casing variants
+         * @param {Object} oNode - Node object
+         * @returns {String} Normalized Full_Location value
+         */
+        _getFullLocation: function(oNode) {
+            if (!oNode) return "";
+            if (oNode.Full_Location) return oNode.Full_Location;
+            if (oNode.Full_location) return oNode.Full_location;
+            if (oNode.full_location) return oNode.full_location;
+            if (oNode.FullLocation) return oNode.FullLocation;
+            return "";
+        },
+
+        /**
+         * Get path segments from a full location string
+         * Splits "Parent / Child / Leaf" into ["Parent", "Child", "Leaf"]
+         * @param {String} sFullLocation - Full location path
+         * @returns {Array} Array of path segments
+         */
+        _getPathSegments: function(sFullLocation) {
+            if (!sFullLocation) {
+                return [];
+            }
+            return sFullLocation.split(" / ");
+        },
+
+        /**
+         * Build breadcrumb array from a full location path
+         * @param {String} sFullLocation - Full location path (e.g., "Parent / Child / Leaf")
+         * @returns {Array} Array of breadcrumb objects {name, fullLocation}
+         */
+        _buildBreadcrumbSegments: function(sFullLocation) {
+            var aBreadcrumb = [];
+            
+            if (!sFullLocation) {
+                return aBreadcrumb;
+            }
+            
+            var segments = this._getPathSegments(sFullLocation);
+            
+            // Use array.slice().join() instead of string concatenation (O(n) vs O(n²))
+            segments.forEach(function(segment, index) {
+                var sFullPath = segments.slice(0, index + 1).join(" / ");
+                aBreadcrumb.push({
+                    name: segment,
+                    fullLocation: sFullPath
+                });
+            });
+            
+            return aBreadcrumb;
+        },
+
         fetchDetailTiles: function (sCtId, sCompoonentID, hash) {
             this.setBusyOn();
             var oLocalDataModel = this.getLocalDataModel();

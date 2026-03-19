@@ -10,6 +10,41 @@ sap.ui.define([
             if (oRouter) {
                 oRouter.getRoute("Master").attachPatternMatched(this.onRouteMatched, this);
             }
+            // Listen for breadcrumb selection events
+            sap.ui.getCore().getEventBus().subscribe("Master", "FocusNodeFromBreadcrumb", this.focusNodeInTree, this);
+            // Initialize duplicate tracker for performance optimization (ES5 compatible)
+            this._nodeInfoMap = {}; // O(1) duplicate detection using object keys
+            this._bNodeInfoMapValid = false; // O(1) flag instead of Object.keys() check
+            
+            // Monitor nodeInfoArray for changes to invalidate duplicate map
+            var oLocalDataModel = this.getLocalDataModel();
+            this._fnPropertyChangeListener = function(oEvent) {
+                if (oEvent.getParameter("path") === "/nodeInfoArray") {
+                    // Invalidate map when nodeInfoArray changes
+                    this._bNodeInfoMapValid = false;
+                }
+            }.bind(this);
+            oLocalDataModel.attachPropertyChange(this._fnPropertyChangeListener);
+        },
+        
+        onExit: function() {
+            // Clean up property change listener to prevent memory leak
+            var oLocalDataModel = this.getLocalDataModel();
+            if (oLocalDataModel && this._fnPropertyChangeListener) {
+                oLocalDataModel.detachPropertyChange(this._fnPropertyChangeListener);
+            }
+        },
+        
+        /**
+         * Normalize and ensure Full_Location property is consistent
+         * @param {Object} oNode - Node object to normalize
+         */
+        _normalizeFullLocation: function(oNode) {
+            if (!oNode) return;
+            var sNormalized = this._getFullLocation(oNode);
+            if (sNormalized && sNormalized !== oNode.Full_Location) {
+                oNode.Full_Location = sNormalized;
+            }
         },
         onAfterRendering: function () {
             var oTable = this.getView().byId("TreeTableBasic");
@@ -120,6 +155,98 @@ sap.ui.define([
             this._loadRootNodes(oSelectedNode);
         },
 
+        focusNodeInTree: function (sChannel, sEvent, oData) {
+            var oNode = oData && oData.nodeData;
+            if (!oNode || !oNode.CV_ID) {
+                return;
+            }
+            
+            var sTargetFullLocation = this._getFullLocation(oNode);
+            if (!sTargetFullLocation) {
+                return;
+            }
+            
+            var oTreeTable = this.byId("TreeTableBasic");
+            if (!oTreeTable) {
+                return;
+            }
+            
+            var oRowIndexMap = this._buildRowIndexMap(oTreeTable);
+            if (oRowIndexMap.hasOwnProperty(sTargetFullLocation)) {
+                var iRowIndex = oRowIndexMap[sTargetFullLocation];
+                oTreeTable.setSelectedIndex(iRowIndex);
+                return;
+            }
+            
+            this._expandPathToNode(sTargetFullLocation, oTreeTable);
+        },
+        
+        /**
+         * Build index map of Full_Location -> row index for O(1) lookups
+         * @param {Object} oTreeTable - TreeTable control
+         * @returns {Object} Object with Full_Location as key, row index as value
+         */
+        _buildRowIndexMap: function(oTreeTable) {
+            var oMap = {};
+            var aRows = oTreeTable.getRows();
+            for (var i = 0; i < aRows.length; i++) {
+                var oRowContext = aRows[i].getBindingContext("LocalDataModel");
+                if (oRowContext) {
+                    var oRowData = oRowContext.getObject();
+                    var sFullLocation = this._getFullLocation(oRowData);
+                    if (sFullLocation) {
+                        oMap[sFullLocation] = i;
+                    }
+                }
+            }
+            return oMap;
+        },
+
+        _expandPathToNode: function(sTargetFullLocation, oTreeTable) {
+            if (!oTreeTable) {
+                oTreeTable = this.byId("TreeTableBasic");
+                if (!oTreeTable) return;
+            }
+            
+            // Get path segments using shared utility method from BaseController
+            var aPathSegments = this._getPathSegments(sTargetFullLocation);
+            var aRows = oTreeTable.getRows();
+            var oRowIndexMap = this._buildRowIndexMap(oTreeTable);
+            
+            // Pre-compute ancestor paths to avoid repeated slice() calls in loop
+            var aAncestorPaths = [];
+            for (var j = 0; j < aPathSegments.length - 1; j++) {
+                aAncestorPaths.push(aPathSegments.slice(0, j + 1).join(" / "));
+            }
+            
+            // Use pre-computed paths
+            for (var i = 0; i < aAncestorPaths.length; i++) {
+                var sAncestorPath = aAncestorPaths[i];
+                
+                if (oRowIndexMap.hasOwnProperty(sAncestorPath)) {
+                    var iAncestorIndex = oRowIndexMap[sAncestorPath];
+                    var oAncestorData = aRows[iAncestorIndex].getBindingContext("LocalDataModel").getObject();
+                    
+                    if (oAncestorData.Has_Children && !oTreeTable.isExpanded(iAncestorIndex)) {
+                        oTreeTable.expand(iAncestorIndex);
+                    }
+                }
+            }
+            
+            var self = this;
+            // Capture the row index map in closure to avoid rebuilding it
+            var fnSelectNode = function() {
+                oTreeTable.detachEvent("rowsUpdated", fnSelectNode);
+                // Rebuild map only because rows actually changed from expand() calls
+                var oUpdatedMap = self._buildRowIndexMap(oTreeTable);
+                if (oUpdatedMap.hasOwnProperty(sTargetFullLocation)) {
+                    var iTargetIndex = oUpdatedMap[sTargetFullLocation];
+                    oTreeTable.setSelectedIndex(iTargetIndex);
+                }
+            };
+            oTreeTable.attachEvent("rowsUpdated", fnSelectNode);
+        },
+
         _loadRootNodes: function (oSelectedNode) {
             if (!oSelectedNode || !oSelectedNode.CV_ID) {
                 return;
@@ -158,12 +285,14 @@ sap.ui.define([
                         if (sCtId === "2109" || sCtId === "2296") {
                             console.log("Asset Type", sCtId, "-> Mapped to:", sAssetType, "Row CT_ID type:", typeof oRow.CT_ID, "Row:", oRow);
                         }
-                        return Object.assign({}, oRow, {
+                        var oMappedRow = Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
                             rows: aChildRows
                         });
+                        this._normalizeFullLocation(oMappedRow);
+                        return oMappedRow;
                     }.bind(this));
                     // Log missing asset types for debugging
                     if (aMissingAssetTypes.length > 0) {
@@ -186,13 +315,13 @@ sap.ui.define([
                         this.addNodeToInfoArr(oRow);
                     }.bind(this));
                     
-                    // Collapse all root nodes and select the first row after the TreeTable has processed the new data
+                    // Collapse all root nodes after the TreeTable has processed the new data
                     var oTreeTable = this.byId("TreeTableBasic");
                     if (oTreeTable) {
                         oTreeTable.attachEventOnce("rowsUpdated", function () {
                             oTreeTable.collapseAll();
-                            // Auto-select the first row to load tiles by default
-                            if (aRows && aRows.length > 0) {
+                            // Auto-select the first row ONLY on initial load (when treeTable was empty)
+                            if (aRows && aRows.length > 0 && this.getLocalDataModel().getProperty("/treeTable").length === aRows.length) {
                                 oTreeTable.setSelectedIndex(0);
                                 // Trigger row selection manually to load tiles
                                 var oFirstRowContext = oTreeTable.getContextByIndex(0);
@@ -317,18 +446,18 @@ sap.ui.define([
                         if (sCtId === "2109" || sCtId === "2296") {
                             console.log("Asset Type", sCtId, "-> Mapped to:", sAssetType, "Row CT_ID type:", typeof oRow.CT_ID, "Row:", oRow);
                         }
-                        return Object.assign({}, oRow, {
+                        var oMappedRow = Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
                             rows: aChildRows
                         });
+                        this._normalizeFullLocation(oMappedRow);
+                        return oMappedRow;
                     }.bind(this));
-                    // Log missing asset types for debugging
                     if (aMissingAssetTypes.length > 0) {
                         console.warn("Child - Asset types missing names: ", aMissingAssetTypes);
                     }
-                    // Sort rows by Name in ascending order
                     aRows.sort(function(a, b) {
                         var nameA = (a.Name || "").toLowerCase();
                         var nameB = (b.Name || "").toLowerCase();
@@ -336,6 +465,9 @@ sap.ui.define([
                         if (nameA > nameB) return 1;
                         return 0;
                     });
+                    aRows.forEach(function(oRow) {
+                        this.addNodeToInfoArr(oRow);
+                    }.bind(this));
                     this.getLocalDataModel().setProperty(sPath, aRows);
                     this.setBusyOff();
                 }.bind(this),
@@ -349,15 +481,33 @@ sap.ui.define([
         addNodeToInfoArr: function(nodeObj) {
             var oLocalDataModel = this.getLocalDataModel();
             var nodeInfoArr = oLocalDataModel.getProperty("/nodeInfoArray") || [];
-            var fullLocation = nodeObj.Full_Location || nodeObj.Full_location || nodeObj.full_location || nodeObj.FullLocation || "";
+            var fullLocation = this._getFullLocation(nodeObj);
             var guid = nodeObj.GUID || nodeObj.Guid || nodeObj.guid;
-            var exists = nodeInfoArr.some(function(n) {
-                var nGuid = n.GUID || n.Guid || n.guid;
-                var nLoc = n.Full_Location || n.Full_location || n.full_location || n.FullLocation || "";
-                return nGuid === guid && nLoc === fullLocation;
-            });
-            if (!exists && fullLocation && guid) {
+            
+            if (!fullLocation || !guid) {
+                return;
+            }
+            
+            var sDuplicateKey = guid + ":" + fullLocation;
+            
+            if (!this._nodeInfoMap) {
+                this._nodeInfoMap = {};
+            }
+            
+            // Build map from existing array if needed (O(1) validity check instead of Object.keys())
+            if (!this._bNodeInfoMapValid && nodeInfoArr.length > 0) {
+                nodeInfoArr.forEach(function(n) {
+                    var nGuid = n.GUID || n.Guid || n.guid;
+                    var nLoc = this._getFullLocation(n);
+                    this._nodeInfoMap[nGuid + ":" + nLoc] = true;
+                }.bind(this));
+                this._bNodeInfoMapValid = true;
+            }
+            
+            // O(1) duplicate detection using object properties
+            if (!this._nodeInfoMap[sDuplicateKey]) {
                 nodeInfoArr.push(nodeObj);
+                this._nodeInfoMap[sDuplicateKey] = true;
                 oLocalDataModel.setProperty("/nodeInfoArray", nodeInfoArr);
             }
         }
