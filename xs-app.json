@@ -15,6 +15,12 @@
       "csrfProtection": false
     },
     {
+      "source": "^/setting",
+      "destination": "NexusQA",
+      "authenticationType": "none",
+      "csrfProtection": false
+    },
+    {
       "source": "^<apply-service-segment-path>/(.*)$",
       "target": "<apply-service-segment-path>/$1",
       "destination": "NexusQA",

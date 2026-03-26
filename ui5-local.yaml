@@ -41,3 +41,6 @@ server:
           - path: /bo
             url: https://trial.nexusic.com/data/icweb.dll
             destination: Nexus
+          - path: /setting
+            url: https://trial.nexusic.com/data/icweb.dll
+            destination: Nexus

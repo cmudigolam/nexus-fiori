@@ -74,18 +74,18 @@ sap.ui.define([
             this.setBusyOff();
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
-            
+
             // If no asset is selected, select the first one by default
             if (!oSelectedNode) {
                 var aNodeInfoArray = oLocalDataModel.getProperty("/nodeInfoArray");
-                
+
                 if (aNodeInfoArray && aNodeInfoArray.length > 0) {
                     oSelectedNode = aNodeInfoArray[0];
                     oLocalDataModel.setProperty("/selectedNodeData", oSelectedNode);
-                    
+
                     // Update breadcrumb for the first asset
                     this.updateBreadcrumb();
-                    
+
                     // Fetch detail tiles for the first asset
                     if (oSelectedNode.CT_ID) {
                         var sHash = oLocalDataModel.getProperty("/HashToken");
@@ -115,7 +115,7 @@ sap.ui.define([
                     oLocalDataModel.attachPropertyChange(this._fnDetailAutoSelectListener);
                 }
             }
-            
+
             // Update share URL in model for tooltip binding
             if (oSelectedNode && oSelectedNode.VN_ID) {
                 oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.VN_ID);
@@ -218,7 +218,7 @@ sap.ui.define([
             var fnCallTableApi = function (sResolvedHash) {
                 this.setBusyOn();
                 $.ajax({
-                    "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName),
+                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -268,7 +268,7 @@ sap.ui.define([
             var fnFetchExternalReferences = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": self.getCompleteURL() + "/bo/External_References/" + encodeURIComponent(sComponentId),
+                    "url": self.isRunninglocally() + "/bo/External_References/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -285,7 +285,10 @@ sap.ui.define([
 
                         var sFunctionalLocation = oRecord.Functional_Location || "";
                         var sExternalReferenceId = oRecord.External_Reference_ID || "";
-                        var sEquipmentId = oRecord.EquipementID || "";
+                        var sEquipmentId = oRecord.Equipment_Number || "";
+                        if (sEquipmentId && sExternalReferenceId.length > 0 && sExternalReferenceId.length < 18) {
+                            sExternalReferenceId = sExternalReferenceId.padStart(18, "0");
+                        }
                         // Navigate to SAP with the extracted values
                         var sUrl = "https://pipl-sapa23.pilogcloud.com:8100/sap/bc/ui2/flp?sap-client=100&sap-language=EN#MaintenanceObject-displayFactSheet";
                         if (sEquipmentId) {
@@ -293,16 +296,16 @@ sap.ui.define([
                         } else if (sFunctionalLocation) {
                             sUrl += "&/C_ObjPgTechnicalObject(TechObjIsEquipOrFuncnlLoc='EAMS_FL',TechnicalObject=%27" + encodeURIComponent(sExternalReferenceId) + "%27)";
                         }
-                        if(sEquipmentId == "" && sFunctionalLocation == ""){
-                            MessageToast.show(self.getResourceBundle().getText("msgNoValidReference"));
+                        if (sEquipmentId == "" && sFunctionalLocation == "") {
+                            MessageBox.error(self.getResourceBundle().getText("msgNoValidReference"));
                             self.setBusyOff();
                             return;
                         }
-                        window.open(sUrl, "_self");
+                        window.open(sUrl, "_blank"); // _self
                         self.setBusyOff();
                     },
                     "error": function () {
-                        MessageToast.show(self.getResourceBundle().getText("msgErrorFetchingExternalReferences"));
+                        MessageBox.error(self.getResourceBundle().getText("msgErrorFetchingExternalReferences"));
                         self.setBusyOff();
                     }
                 });
@@ -397,6 +400,7 @@ sap.ui.define([
 
             // Build form content dynamically
             self._fieldControlMap = {};
+            self._categoryTabMap = {};
             self._pendingComboBoxValues = {};
             self._pendingLookupCount = 0;
             self._formDataTableName = sTableName;
@@ -405,7 +409,7 @@ sap.ui.define([
             // Set busy indicator to show immediately when dialog opens
             self._oFormDialog.setBusyIndicatorDelay(0);
             self._oFormDialog.setBusy(true);
-            
+
             self._oFormDialog.open();
 
             // After form is opened, check if there are pending lookups
@@ -439,7 +443,7 @@ sap.ui.define([
                         var bOrder = b.formOrder !== undefined ? parseInt(b.formOrder) : 999999;
                         return aOrder - bOrder;
                     });
-                    
+
                     aSortedFields.forEach(function (oField) {
                         // Determine visibility based on formVisible property from API metadata
                         var bVisible = oField.formVisible !== false;
@@ -468,7 +472,24 @@ sap.ui.define([
                         if (sFieldKey) {
                             self._fieldControlMap[sFieldKey] = oInput;
                         }
-                        aFormContent.push(oInput);
+
+                        if (bVisible && Number(oField.fieldTypeId) == 40) {
+                            // Create Button
+                            var oButton = new sap.m.Button({
+                                text: "ƒ"
+                            });
+                            oButton.addStyleClass("italicButton");
+
+                            // HBox places controls horizontally (side by side)
+                            var oHBox = new sap.m.HBox({
+                                items: [oInput, oButton],
+                                renderType: "Bare",
+                                alignItems: "Center"
+                            });
+                            aFormContent.push(oHBox);
+                        }
+                        else
+                            aFormContent.push(oInput);
                     });
                 } else {
                     // No fields for this category
@@ -487,12 +508,24 @@ sap.ui.define([
                     content: aFormContent
                 });
 
+                // Build scroll content: optional comment text on top, then the form
+                var aScrollContent = [];
+                if (oCategory.comments) {
+                    var oCommentText = new sap.m.Text({
+                        text: oCategory.comments,
+                        wrapping: true
+                    });
+                    oCommentText.addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginTop");
+                    aScrollContent.push(oCommentText);
+                }
+                aScrollContent.push(oSimpleForm);
+
                 // Create ScrollContainer for the form
                 var oScrollContainer = new sap.m.ScrollContainer({
                     vertical: true,
                     horizontal: true,
                     height: "100%",
-                    content: [oSimpleForm]
+                    content: aScrollContent
                 });
 
                 // Create tab for this category
@@ -502,6 +535,8 @@ sap.ui.define([
                     content: [oScrollContainer]
                 });
 
+                // Store reference so we can show/hide after validation
+                self._categoryTabMap[oCategory.name] = oTab;
                 oTabBar.addItem(oTab);
             });
         },
@@ -522,7 +557,7 @@ sap.ui.define([
                 case 9: // Date field
                     return new sap.m.DatePicker({
                         //placeholder: oField.name || oField.fieldName,
-                        valueFormat: "yyyy-MM-dd"
+                        displayFormat: "dd MMM yyyy"
                     });
                 case 5: // Boolean field
                     return new sap.m.CheckBox({
@@ -540,7 +575,7 @@ sap.ui.define([
                     });
                     // Note: For fieldTypeId 37, lookupListId should be set separately
                     return oSelect;
-                case 38: // Sub-table
+                case 40: // Sub-table
                     return new sap.m.Input({
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
@@ -559,7 +594,7 @@ sap.ui.define([
 
             var fnFetch = function (sResolvedHash) {
                 $.ajax({
-                    "url":  self.getCompleteURL()+"/bo/Lookup_Item/",
+                    "url": self.isRunninglocally() + "/bo/Lookup_Item/",
                     "method": "GET",
                     "dataType": "json",
                     "headers": {
@@ -582,13 +617,13 @@ sap.ui.define([
                                 text: sText
                             }));
                         });
-                        
+
                         // After items are loaded, apply any pending value selection
                         self._applyPendingComboBoxValues();
-                        
+
                         // Decrement pending lookup count
                         self._pendingLookupCount--;
-                        
+
                         // If all lookups are done, load form data
                         if (self._pendingLookupCount === 0 && self._formDataTableName) {
                             self._loadFormData(self._formDataTableName);
@@ -596,10 +631,10 @@ sap.ui.define([
                     },
                     "error": function () {
                         MessageToast.show(self.getResourceBundle().getText("msgErrorLoadingLookupItems"));
-                        
+
                         // Decrement pending lookup count even on error
                         self._pendingLookupCount--;
-                        
+
                         // If all lookups are done (or failed), load form data
                         if (self._pendingLookupCount === 0 && self._formDataTableName) {
                             self._loadFormData(self._formDataTableName);
@@ -651,6 +686,8 @@ sap.ui.define([
                 $.ajax({
                     "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                    "method": "GET",
+                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
+                    "method": "GET",
                     "dataType": "json",
                     "data": {
                         "hash": sResolvedHash
@@ -667,7 +704,7 @@ sap.ui.define([
                         var sComponentId = oRecord && oRecord.Component_ID;
                         if (sComponentId) {
                             // Make validation POST call to check field visibility
-                            self._validateFieldVisibility(sComponentId, oRecord, sResolvedHash,sTableName);
+                            self._validateFieldVisibility(sComponentId, oRecord, sResolvedHash, sTableName);
                         } else {
                             self.setBusyOff();
                         }
@@ -701,14 +738,14 @@ sap.ui.define([
                 }
             });
         },
-        _validateFieldVisibility: function (sComponentId, oRecord, sHash,sTableName) {
+        _validateFieldVisibility: function (sComponentId, oRecord, sHash, sTableName) {
             var self = this;
             // Show busy indicator on dialog
             if (this._oFormDialog) {
                 this._oFormDialog.setBusy(true);
             }
             $.ajax({
-                "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
+                "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
                 "method": "POST",
                 "contentType": "application/json",
                 "dataType": "json",
@@ -754,7 +791,7 @@ sap.ui.define([
 
             var self = this;
             var iVisibleFieldCount = 0;
-            
+
             oFormData.fields.forEach(function (oField) {
                 var sFieldKey = oField.fieldName || oField.name;
                 var oControl = self._fieldControlMap[sFieldKey];
@@ -771,10 +808,10 @@ sap.ui.define([
 
                 // Rule 2: formVisible is true or not specified, check updateStates
                 var bFieldVisible = true; // default visibility
-                
+
                 if (bHasUpdateStates) {
                     var oFieldUpdateState;
-                    
+
                     // Find field in updateStates (handle both array and object)
                     if (Array.isArray(oUpdateStates)) {
                         oFieldUpdateState = oUpdateStates.find(function (oItem) {
@@ -783,7 +820,7 @@ sap.ui.define([
                     } else {
                         oFieldUpdateState = oUpdateStates[sFieldKey] || oUpdateStates[String(sFieldKey)];
                     }
-                    
+
                     // If field found in updateStates, check its visible property
                     if (oFieldUpdateState !== undefined && oFieldUpdateState !== null) {
                         if (oFieldUpdateState.visible !== undefined) {
@@ -801,12 +838,35 @@ sap.ui.define([
                     // No updateStates in response -> default to visible
                     bFieldVisible = true;
                 }
-                
+
                 oControl.setVisible(bFieldVisible);
                 if (bFieldVisible) {
                     iVisibleFieldCount++;
                 }
             });
+
+            // After all field visibilities are updated, hide tabs whose fields are all hidden
+            if (this._categoryTabMap && oFormData.fields) {
+                // Build a map of category -> whether any field in that category is visible
+                var oCategoryVisibility = {};
+                oFormData.fields.forEach(function (oField) {
+                    var sCat = oField.category || (oFormData.categories && oFormData.categories[0] && oFormData.categories[0].name) || "General";
+                    if (oCategoryVisibility[sCat] === undefined) {
+                        oCategoryVisibility[sCat] = false;
+                    }
+                    var sFieldKey = oField.fieldName || oField.name;
+                    var oControl = self._fieldControlMap[sFieldKey];
+                    if (oControl && oControl.getVisible()) {
+                        oCategoryVisibility[sCat] = true;
+                    }
+                });
+                Object.keys(self._categoryTabMap).forEach(function (sCatName) {
+                    var oTab = self._categoryTabMap[sCatName];
+                    if (oTab) {
+                        oTab.setVisible(oCategoryVisibility[sCatName] === true);
+                    }
+                });
+            }
 
             // If no fields are visible, show message and hide save button
             if (iVisibleFieldCount === 0) {
@@ -823,7 +883,7 @@ sap.ui.define([
         _checkPermissions: function (sProductValue, sHash) {
             var self = this;
             $.ajax({
-                "url":  self.getCompleteURL()+"/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
+                "url": self.isRunninglocally() + "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -907,21 +967,26 @@ sap.ui.define([
                 if (oControl.isA("sap.m.Input")) {
                     oControl.setValue(String(vValue));
                 } else if (oControl.isA("sap.m.DatePicker")) {
-                    oControl.setValue(String(vValue));
+                    var oDate = new Date(vValue);
+                    if (!isNaN(oDate.getTime())) {
+                        oControl.setDateValue(oDate);
+                    } else {
+                        oControl.setValue(String(vValue));
+                    }
                 } else if (oControl.isA("sap.m.CheckBox")) {
                     oControl.setSelected(!!vValue);
                 } else if (oControl.isA("sap.m.Select")) {
                     var sValueStr = String(vValue).trim();
-                    
+
                     // Store this value as pending - it will be applied after items load
                     self._pendingComboBoxValues[sFieldKey] = {
                         control: oControl,
                         value: sValueStr
                     };
-                    
+
                     // Get all items in the select
                     var aItems = oControl.getItems();
-                    
+
                     if (aItems && aItems.length > 0) {
                         // Items already loaded, apply immediately
                         self._applyComboBoxValue(oControl, sFieldKey, sValueStr);
@@ -1017,8 +1082,8 @@ sap.ui.define([
                             // Checkboxes are typically not mandatory in the same way
                             bIsValid = true;
                         } else if (oControl.isA("sap.m.Select")) {
-                            bIsValid = (oControl.getSelectedKey() || oControl.getValue()) && 
-                                      (oControl.getSelectedKey() || oControl.getValue()).trim() !== "";
+                            bIsValid = (oControl.getSelectedKey() || oControl.getValue()) &&
+                                (oControl.getSelectedKey() || oControl.getValue()).trim() !== "";
                         }
 
                         if (!bIsValid) {
@@ -1036,31 +1101,31 @@ sap.ui.define([
 
         _applyComboBoxValue: function (oSelect, sFieldKey, sValue) {
             var aItems = oSelect.getItems();
-            
+
             if (!aItems || aItems.length === 0) {
                 return;
             }
-            
+
             // Normalize the value for comparison
             var sNormalizedValue = String(sValue).trim();
-            
+
             // Priority 1: Try to match by display text (Value field from lookup) since that's what gets stored
             var matchedKey = null;
             for (var i = 0; i < aItems.length; i++) {
                 var sItemText = String(aItems[i].getText()).trim();
-                
+
                 // Try text match first (this is what the database stores)
                 if (sItemText === sNormalizedValue) {
                     matchedKey = aItems[i].getKey();
                     break;
                 }
             }
-            
+
             // Priority 2: If no text match, try key match (LI_ID)
             if (matchedKey === null) {
                 for (var i = 0; i < aItems.length; i++) {
                     var sItemKey = String(aItems[i].getKey()).trim();
-                    
+
                     // Try key match (including numeric comparison)
                     if (sItemKey === sNormalizedValue || parseInt(sItemKey) === parseInt(sNormalizedValue)) {
                         matchedKey = aItems[i].getKey();
@@ -1068,7 +1133,7 @@ sap.ui.define([
                     }
                 }
             }
-            
+
             if (matchedKey !== null) {
                 oSelect.setSelectedKey(matchedKey);
             }
@@ -1078,7 +1143,7 @@ sap.ui.define([
             if (!this._pendingComboBoxValues || Object.keys(this._pendingComboBoxValues).length === 0) {
                 return;
             }
-            
+
             var self = this;
             Object.keys(this._pendingComboBoxValues).forEach(function (sFieldKey) {
                 var oPending = self._pendingComboBoxValues[sFieldKey];
@@ -1103,6 +1168,24 @@ sap.ui.define([
             var aValidationErrors = self._validateMandatoryFields();
             if (aValidationErrors.length > 0) {
                 self._showFieldValidationErrors(aValidationErrors);
+                // Navigate to the tab containing the first invalid field
+                var sFirstInvalidField = aValidationErrors[0].field;
+                var oSaveFormData = self._oFormDialog.getModel("FormData").getProperty("/formData");
+                if (oSaveFormData && oSaveFormData.fields) {
+                    var oInvalidField = oSaveFormData.fields.find(function (f) {
+                        return (f.fieldName || f.name) === sFirstInvalidField;
+                    });
+                    if (oInvalidField) {
+                        var sCat = oInvalidField.category ||
+                            (oSaveFormData.categories && oSaveFormData.categories[0] && oSaveFormData.categories[0].name) ||
+                            "General";
+                        var oTargetTab = self._categoryTabMap && self._categoryTabMap[sCat];
+                        if (oTargetTab) {
+                            var oTabBar = self._oFormDialog.getContent()[0];
+                            oTabBar.setSelectedKey(oTargetTab.getKey());
+                        }
+                    }
+                }
                 MessageToast.show(self.getResourceBundle().getText("msgFieldsRequireAttention", [aValidationErrors.length]));
                 return;
             }
@@ -1132,7 +1215,7 @@ sap.ui.define([
                         var sSelectedKey = oControl.getSelectedKey();
                         var oSelectedItem = oControl.getSelectedItem();
                         var sSelectedText = oSelectedItem ? oSelectedItem.getText() : "";
-                        
+
                         // Post the selected text/value (not the LI_ID) - this is what the database expects
                         if (sSelectedText !== "" && sSelectedText !== undefined) {
                             oPayload[sFieldKey] = sSelectedText;
@@ -1146,7 +1229,7 @@ sap.ui.define([
             var fnPostData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
+                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
                     "method": "POST",
                     "contentType": "application/json",
                     "dataType": "json",
@@ -1207,7 +1290,7 @@ sap.ui.define([
                 return;
             }
             var sDashboardId = oEvent.getSource().data("dashboardId");
-            var sUrl = "https://trial.nexusic.com/?navigateTo=Asset&searchKey=VN_ID&searchValue=" + encodeURIComponent(oSelectedNode.VN_ID) + "&tab=Dashboard&dasboardId=" + sDashboardId;
+            var sUrl = "https://trial.nexusic.com/?navigateTo=Asset&searchKey=VN_ID&searchValue=" + encodeURIComponent(oSelectedNode.VN_ID) + "&tab=Dashboard&dashboardId=" + sDashboardId;
             window.open(sUrl, "_blank");
         },
 

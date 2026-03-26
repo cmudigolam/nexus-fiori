@@ -108,3 +108,7 @@ html .sapUiContainer-Medium .sapUxAPObjectPageSectionHeader {
     border-color: #e63329 !important;
     box-shadow: 0 0 0 2px #e63329 !important;
 }
+
+.italicButton .sapMBtnContent {
+    font-style: normal;
+}

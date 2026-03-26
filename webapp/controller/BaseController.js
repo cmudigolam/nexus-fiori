@@ -76,7 +76,7 @@ sap.ui.define([
         },
         isRunninglocally: function () {
             var sHost = window.location.host;
-            if (!sHost.includes("localhost"))
+            if (!sHost.includes("localhost") && !sHost.includes("port"))
                 var Prefix = this.getCompleteURL();
             else var Prefix = "";
             return Prefix;
@@ -135,12 +135,78 @@ sap.ui.define([
             return aBreadcrumb;
         },
 
+        fetchSettings: function (hash) {
+            var self = this;
+            var oDeferred = $.Deferred();
+            $.ajax({
+                url: self.isRunninglocally() + "/setting/",
+                method: "GET",
+                dataType: "json",
+                data: {
+                    hash: hash
+                },
+                success: function (response) {
+                    var aRows = Array.isArray(response) ? response : (response && Array.isArray(response.rows) ? response.rows : []);
+                    // Find the AigOrdering row and parse its value JSON
+                    var oOrderingRow = aRows.find(function (r) { return r.identifier === "AigOrdering"; });
+                    if (oOrderingRow && oOrderingRow.value && typeof oOrderingRow.value === "string") {
+                        try {
+                            var aParsed = JSON.parse(oOrderingRow.value);
+                            if (Array.isArray(aParsed)) {
+                                oDeferred.resolve(aParsed);
+                                return;
+                            }
+                        } catch (e) {
+                            console.error("Error parsing AigOrdering value:", e);
+                        }
+                    }
+                    oDeferred.resolve(null);
+                },
+                error: function (xhr, status, error) {
+                    self.setBusyOff();
+                    if (xhr.status === 404) {
+                        console.warn("Settings endpoint not available (404). Using default sorting.", error);
+                    } else {
+                        console.error("Error while fetching settings:", error);
+                    }
+                    oDeferred.resolve(null);
+                }
+            });
+            return oDeferred.promise();
+        },
+
+        sortTilesBySettings: function (aTiles, aSettings) {
+            if (!Array.isArray(aSettings) || aSettings.length === 0) {
+                return aTiles;
+            }
+
+            // Normalize: remove all spaces for matching
+            function normalize(s) {
+                return String(s || "").replace(/\s+/g, "").toLowerCase();
+            }
+
+            // Build Order lookup from settings keyed by normalized Name
+            var oOrderMap = {};
+            aSettings.forEach(function (oSetting) {
+                if (oSetting.Name != null && oSetting.Order != null) {
+                    oOrderMap[normalize(oSetting.Name)] = Number(oSetting.Order);
+                }
+            });
+
+            // Sort tiles ascending by Order, tiles not in settings go to the end
+            return aTiles.slice().sort(function (a, b) {
+                var nOrderA = oOrderMap.hasOwnProperty(normalize(a.Name)) ? oOrderMap[normalize(a.Name)] : Number.MAX_VALUE;
+                var nOrderB = oOrderMap.hasOwnProperty(normalize(b.Name)) ? oOrderMap[normalize(b.Name)] : Number.MAX_VALUE;
+                return nOrderA - nOrderB;
+            });
+        },
+
         fetchDetailTiles: function (sCtId, sCompoonentID, hash) {
             this.setBusyOn();
             var oLocalDataModel = this.getLocalDataModel();
             var self = this;
             $.ajax({
-                url: self.getCompleteURL()+ "/bo/Info_Def/",
+                url: self.isRunninglocally()+ "/bo/Info_Def/",
                 method: "GET",
                 dataType: "json",
                 headers: {
@@ -177,7 +243,7 @@ sap.ui.define([
 
                     // Second service call: get table definitions by TD_IDs
                     $.ajax({
-                        url:  self.getCompleteURL()+ "/bo/Table_Def/",
+                        url:  self.isRunninglocally()+ "/bo/Table_Def/",
                         method: "GET",
                         dataType: "json",
                         headers: {
@@ -193,39 +259,93 @@ sap.ui.define([
                                         aTiles.push(oTile);
                                     }
                                     return aTiles;
-                                }, [])
-                                .sort(function(a, b) {
-                                    var nameA = (a.Name || "").toLowerCase();
-                                    var nameB = (b.Name || "").toLowerCase();
-                                    if (nameA < nameB) return -1;
-                                    if (nameA > nameB) return 1;
-                                    return 0;
-                                });
-                            var oCategoryMap = {};
-                            aTiles.forEach(function (oTile) {
-                                var sCategory = oTile.Category || oTile.category || "Uncategorized";
-                                if (!oCategoryMap[sCategory]) {
-                                    oCategoryMap[sCategory] = [];
-                                }
-                                oCategoryMap[sCategory].push(oTile);
-                            });
-                            var aTileGroups = Object.keys(oCategoryMap).sort().map(function (sCategory) {
-                                return {
-                                    Category: sCategory,
-                                    tiles: oCategoryMap[sCategory].sort(function(a, b) {
+                                }, []);
+
+                            // Fetch settings and sort tiles by Order (ascending)
+                            self.fetchSettings(hash).done(function (aSettings) {
+                                if (aSettings) {
+                                    // Filter settings by matching AssetType to current tiles
+                                    var fnNorm = function (s) { return String(s || "").replace(/\s+/g, "").toLowerCase(); };
+                                    var aTileKeys = aTiles.map(function (t) { return fnNorm(t.Name); });
+                                    var oAssetGroups = {};
+                                    aSettings.forEach(function (s) {
+                                        var sAt = s.AssetType || "";
+                                        if (!oAssetGroups[sAt]) oAssetGroups[sAt] = [];
+                                        oAssetGroups[sAt].push(s);
+                                    });
+                                    // Pick AssetType with most tile name matches
+                                    var sBestType = "";
+                                    var nBestCount = 0;
+                                    Object.keys(oAssetGroups).forEach(function (sAt) {
+                                        var nCount = oAssetGroups[sAt].filter(function (s) {
+                                            return aTileKeys.indexOf(fnNorm(s.Name)) !== -1;
+                                        }).length;
+                                        if (nCount > nBestCount) {
+                                            nBestCount = nCount;
+                                            sBestType = sAt;
+                                        }
+                                    });
+                                    var aFiltered = sBestType ? oAssetGroups[sBestType] : aSettings;
+                                    aTiles = self.sortTilesBySettings(aTiles, aFiltered);
+                                } else {
+                                    // Fallback to Name sorting if settings are not available
+                                    aTiles = aTiles.sort(function(a, b) {
                                         var nameA = (a.Name || "").toLowerCase();
                                         var nameB = (b.Name || "").toLowerCase();
                                         if (nameA < nameB) return -1;
                                         if (nameA > nameB) return 1;
                                         return 0;
-                                    })
-                                };
-                            });
-                            oLocalDataModel.setProperty("/detailTiles", aTiles);
-                            oLocalDataModel.setProperty("/detailTileGroups", aTileGroups);
-                            this.setBusyOff();
-                            this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
-                            this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
+                                    });
+                                }
+
+                                var oCategoryMap = {};
+                                aTiles.forEach(function (oTile) {
+                                    var sCategory = oTile.Category || oTile.category || "Uncategorized";
+                                    if (!oCategoryMap[sCategory]) {
+                                        oCategoryMap[sCategory] = [];
+                                    }
+                                    oCategoryMap[sCategory].push(oTile);
+                                });
+                                var aEffective = aSettings ? aFiltered : [];
+                                // Sort categories by the minimum tile Order within each category
+                                var fnNormCat = function (s) { return String(s || "").replace(/\s+/g, "").toLowerCase(); };
+                                var oSettingsOrderMap = {};
+                                if (Array.isArray(aEffective) && aEffective.length > 0) {
+                                    aEffective.forEach(function (oSetting) {
+                                        if (oSetting.Name != null && oSetting.Order != null) {
+                                            oSettingsOrderMap[fnNormCat(oSetting.Name)] = Number(oSetting.Order);
+                                        }
+                                    });
+                                }
+                                var aCategoryKeys = Object.keys(oCategoryMap);
+                                aCategoryKeys.sort(function (catA, catB) {
+                                    // Find minimum tile order in each category
+                                    var nMinA = Number.MAX_VALUE;
+                                    oCategoryMap[catA].forEach(function (t) {
+                                        var nOrd = oSettingsOrderMap[fnNormCat(t.Name)];
+                                        if (nOrd !== undefined && nOrd < nMinA) nMinA = nOrd;
+                                    });
+                                    var nMinB = Number.MAX_VALUE;
+                                    oCategoryMap[catB].forEach(function (t) {
+                                        var nOrd = oSettingsOrderMap[fnNormCat(t.Name)];
+                                        if (nOrd !== undefined && nOrd < nMinB) nMinB = nOrd;
+                                    });
+                                    if (nMinA !== nMinB) return nMinA - nMinB;
+                                    // Fallback to alphabetical if same order
+                                    return catA.localeCompare(catB);
+                                });
+                                var aTileGroups = aCategoryKeys.map(function (sCategory) {
+                                    return {
+                                        Category: sCategory,
+                                        tiles: self.sortTilesBySettings(oCategoryMap[sCategory], aEffective)
+                                    };
+                                });
+                                oLocalDataModel.setProperty("/detailTiles", aTiles);
+                                oLocalDataModel.setProperty("/detailTileGroups", aTileGroups);
+                                this.setBusyOff();
+                                this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
+                                this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
+                            }.bind(this));
                         }.bind(this),
                         "error": function () {
                             MessageBox.error("Error while fetching table definitions");
@@ -243,7 +363,7 @@ sap.ui.define([
             var self = this;
             return $.ajax({
                 // self.isRunninglocally()+ 
-                "url":  self.getCompleteURL()+ "/security/login",
+                "url":  self.isRunninglocally()+ "/security/login",
                 "method": "GET",
                 "success": function (result, xhr, successData) {
                     this.getLocalDataModel().setProperty("/HashToken", result.hash);

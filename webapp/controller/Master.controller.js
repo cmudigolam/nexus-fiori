@@ -70,7 +70,7 @@ sap.ui.define([
                 this.hash = result.hash;
                 // Fetch Comp_Type to build CT_ID -> Name map
                 $.ajax({
-                    "url":  self.getCompleteURL()+ "/bo/Comp_Type/",
+                    "url":  self.isRunninglocally()+ "/bo/Comp_Type/?pageSize=999",
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -85,13 +85,8 @@ sap.ui.define([
                                 // Store the name or generate a display value from Type_Description if available
                                 var sName = oType.Name || oType.Type_Description || oType.Description || oType.TypeName || "";
                                 this._compTypeMap[sCtId] = sName;
-                                // Log entries for asset types 2109 and 2296 specifically
-                                if (sCtId === "2109" || sCtId === "2296") {
-                                    console.log("Asset Type " + sCtId + ":", oType, "Name stored:", sName);
-                                }
                             }
                         }.bind(this));
-                        console.log("Comp_Type Map Built:", this._compTypeMap);
                         this._loadCompView();
                     }.bind(this),
                     "error": function () {
@@ -105,7 +100,7 @@ sap.ui.define([
         _loadCompView: function () {
             var self = this;
             $.ajax({
-                "url":  self.getCompleteURL()+ "/bo/Comp_view/",
+                "url":  self.isRunninglocally()+ "/bo/Comp_view/",
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -257,7 +252,7 @@ sap.ui.define([
             this.setBusyOn();
             // roote api call
             $.ajax({
-                "url":  self.getCompleteURL()+ "/bo/View_Node/",
+                "url":  self.isRunninglocally()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -269,7 +264,6 @@ sap.ui.define([
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
                     var aMissingAssetTypes = [];
-                    console.log("Root Assets Loaded - Count:", aRows.length);
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
@@ -279,11 +273,6 @@ sap.ui.define([
                         // Track missing asset types for debugging
                         if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
                             aMissingAssetTypes.push(sCtId);
-                            console.log("Missing mapping for CT_ID:", sCtId, "Asset:", sAssetName, "Map keys:", Object.keys(this._compTypeMap));
-                        }
-                        // Log specific asset types
-                        if (sCtId === "2109" || sCtId === "2296") {
-                            console.log("Asset Type", sCtId, "-> Mapped to:", sAssetType, "Row CT_ID type:", typeof oRow.CT_ID, "Row:", oRow);
                         }
                         var oMappedRow = Object.assign({}, oRow, {
                             Name: sAssetName,
@@ -294,12 +283,6 @@ sap.ui.define([
                         this._normalizeFullLocation(oMappedRow);
                         return oMappedRow;
                     }.bind(this));
-                    // Log missing asset types for debugging
-                    if (aMissingAssetTypes.length > 0) {
-                        console.warn("Asset types missing names: ", aMissingAssetTypes);
-                    } else {
-                        console.log("All asset types found in mapping");
-                    }
                     // Sort rows by Name in ascending order
                     aRows.sort(function(a, b) {
                         var nameA = (a.Name || "").toLowerCase();
@@ -418,7 +401,7 @@ sap.ui.define([
 
             this.setBusyOn();
             $.ajax({
-                "url": self.getCompleteURL()+ "/bo/View_Node/",
+                "url": self.isRunninglocally()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -430,7 +413,6 @@ sap.ui.define([
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
                     var aMissingAssetTypes = [];
-                    console.log("Child Assets Loaded for CV_ID:", sCvId, "Count:", aRows.length);
                     aRows = aRows.map(function (oRow) {
                         var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
                         var bHasChild = oRow.Has_Children === true;
@@ -440,11 +422,6 @@ sap.ui.define([
                         // Track missing asset types for debugging
                         if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
                             aMissingAssetTypes.push(sCtId);
-                            console.log("Missing mapping for CT_ID:", sCtId, "Asset:", sAssetName, "Map keys:", Object.keys(this._compTypeMap));
-                        }
-                        // Log specific asset types
-                        if (sCtId === "2109" || sCtId === "2296") {
-                            console.log("Asset Type", sCtId, "-> Mapped to:", sAssetType, "Row CT_ID type:", typeof oRow.CT_ID, "Row:", oRow);
                         }
                         var oMappedRow = Object.assign({}, oRow, {
                             Name: sAssetName,
