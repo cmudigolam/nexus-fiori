@@ -218,7 +218,7 @@ sap.ui.define([
             var fnCallTableApi = function (sResolvedHash) {
                 this.setBusyOn();
                 $.ajax({
-                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName),
+                    "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -268,7 +268,7 @@ sap.ui.define([
             var fnFetchExternalReferences = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": self.isRunninglocally() + "/bo/External_References/" + encodeURIComponent(sComponentId),
+                    "url": self.getCompleteURL() + "/bo/External_References/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -435,6 +435,7 @@ sap.ui.define([
             // Create a tab for each category
             aCategories.forEach(function (oCategory, iIndex) {
                 var aFormContent = [];
+                var aSubTableBlocks = []; // sub-table controls rendered above the form
 
                 if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
                     // Sort fields by formOrder before processing
@@ -447,6 +448,29 @@ sap.ui.define([
                     aSortedFields.forEach(function (oField) {
                         // Determine visibility based on formVisible property from API metadata
                         var bVisible = oField.formVisible !== false;
+
+                        // Sub-table fields are rendered above the form, not inside it
+                        if (oField.subTableId) {
+                            var oTable = self.createFieldControl(oField);
+                            oTable.setVisible(bVisible);
+                            var sFieldKey = oField.fieldName || oField.name;
+                            if (sFieldKey) {
+                                self._fieldControlMap[sFieldKey] = oTable;
+                            }
+                            // Wrap in a titled VBox so the field label appears above the table
+                            var oTitleLabel = new sap.m.Label({
+                                text: oField.name || oField.fieldName,
+                                required: oField.required || false
+                            });
+                            oTitleLabel.addStyleClass("sapUiSmallMarginTop");
+                            var oVBox = new sap.m.VBox({
+                                items: [oTitleLabel, oTable],
+                                visible: bVisible
+                            });
+                            oVBox.addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginBottom");
+                            aSubTableBlocks.push(oVBox);
+                            return; // skip adding to aFormContent
+                        }
 
                         // Add label with comments as tooltip
                         var oLabel = new sap.m.Label({
@@ -473,7 +497,7 @@ sap.ui.define([
                             self._fieldControlMap[sFieldKey] = oInput;
                         }
 
-                        if (bVisible && Number(oField.fieldTypeId) == 40) {
+                        if (bVisible && Number(oField.fieldTypeId) == 40 && !oField.subTableId) {
                             // Create Button
                             var oButton = new sap.m.Button({
                                 text: "ƒ"
@@ -508,7 +532,7 @@ sap.ui.define([
                     content: aFormContent
                 });
 
-                // Build scroll content: optional comment text on top, then the form
+                // Build scroll content: optional comment text, then sub-tables, then the form
                 var aScrollContent = [];
                 if (oCategory.comments) {
                     var oCommentText = new sap.m.Text({
@@ -518,6 +542,10 @@ sap.ui.define([
                     oCommentText.addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginTop");
                     aScrollContent.push(oCommentText);
                 }
+                // Sub-tables appear above the form fields
+                aSubTableBlocks.forEach(function (oBlock) {
+                    aScrollContent.push(oBlock);
+                });
                 aScrollContent.push(oSimpleForm);
 
                 // Create ScrollContainer for the form
@@ -541,6 +569,18 @@ sap.ui.define([
             });
         },
         createFieldControl: function (oField) {
+            // If field has a subTableId, create an sap.m.Table and load columns from boByKey
+            if (oField.subTableId) {
+                this._pendingLookupCount++;
+                var oTable = new sap.m.Table({
+                    growing: true,
+                    growingScrollToLoad: true,
+                    noDataText: "No data"
+                });
+                this._loadSubTableColumns(oTable, oField.subTableId, oField.category);
+                return oTable;
+            }
+
             // If field has a lookupListId, create a Select and load lookup items
             if (oField.lookupListId) {
                 this._pendingLookupCount++;
@@ -568,6 +608,12 @@ sap.ui.define([
                         type: "Number",
                         //placeholder: oField.name || oField.fieldName
                     });
+                case 16: // Multi-line text field
+                    return new sap.m.TextArea({
+                        growing: true,
+                        growingMaxLines: 6,
+                        width: "100%"
+                    });
                 case 37: // Lookup/Dropdown field
                     this._pendingLookupCount++;
                     var oSelect = new sap.m.Select({
@@ -594,7 +640,7 @@ sap.ui.define([
 
             var fnFetch = function (sResolvedHash) {
                 $.ajax({
-                    "url": self.isRunninglocally() + "/bo/Lookup_Item/",
+                    "url": self.getCompleteURL() + "/bo/Lookup_Item/",
                     "method": "GET",
                     "dataType": "json",
                     "headers": {
@@ -655,6 +701,175 @@ sap.ui.define([
                 }
             });
         },
+        _loadSubTableColumns: function (oTable, sSubTableId, sFieldName) {
+            var oLocalDataModel = this.getLocalDataModel();
+            var sHash = oLocalDataModel.getProperty("/HashToken");
+            var self = this;
+
+            var fnFetch = function (sResolvedHash) {
+                $.ajax({
+                    "url": self.getCompleteURL() + "/boByKey/" + encodeURIComponent(sSubTableId),
+                    "method": "GET",
+                    "dataType": "json",
+                    "data": {
+                        "hash": sResolvedHash
+                    },
+                    "success": function (response) {
+                        var aFields = Array.isArray(response && response.fields) ? response.fields : [];
+                        // Only include fields where gridVisible is not explicitly false
+                        var aVisibleFields = aFields.filter(function (oColField) {
+                            return oColField.gridVisible !== false;
+                        });
+                        aVisibleFields.forEach(function (oColField) {
+                            var sColName = oColField.name || oColField.fieldName || "";
+                            oTable.addColumn(new sap.m.Column({
+                                header: new sap.m.Text({ text: sColName })
+                            }));
+                        });
+                        // Store only visible field metadata so row cells align with columns
+                        oTable.data("subTableFields", aVisibleFields);
+
+                        // Use the field's own fieldName from the parent form as the category name.
+                        // response.name is a display name (may have spaces) and should not be used
+                        // as the /bo/ API path segment.
+                        var sCategoryName = response.tableName  || "";
+                        if (sCategoryName) {
+                            self._loadSubTableData(oTable, sCategoryName, aVisibleFields, sResolvedHash);
+                        }
+
+                        self._pendingLookupCount--;
+                        if (self._pendingLookupCount === 0 && self._formDataTableName) {
+                            self._loadFormData(self._formDataTableName);
+                        }
+                    },
+                    "error": function () {
+                        MessageToast.show(self.getResourceBundle().getText("msgErrorLoadingLookupItems"));
+                        self._pendingLookupCount--;
+                        if (self._pendingLookupCount === 0 && self._formDataTableName) {
+                            self._loadFormData(self._formDataTableName);
+                        }
+                    }
+                });
+            };
+
+            if (sHash) {
+                fnFetch(sHash);
+                return;
+            }
+
+            this.getoHashToken().done(function (oResult) {
+                var sFetchedHash = oResult && oResult.hash;
+                if (sFetchedHash) {
+                    fnFetch(sFetchedHash);
+                } else {
+                    self._pendingLookupCount--;
+                }
+            }).fail(function () {
+                self._pendingLookupCount--;
+            });
+        },
+        _loadSubTableData: function (oTable, sCategoryName, aVisibleFields, sResolvedHash) {
+            var oLocalDataModel = this.getLocalDataModel();
+            var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
+            var self = this;
+
+            if (!sComponentId || !sCategoryName) {
+                return;
+            }
+
+            $.ajax({
+                "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sCategoryName) + "/",
+                "method": "GET",
+                "dataType": "json",
+                "headers": {
+                    "x-nexus-filter": JSON.stringify({ "where": [{ "field": "Component_ID", "value": sComponentId }] })
+                    //"X-NEXUS-Sort": JSON.stringify([{ "field": "Component_ID" }])
+                },
+                "data": {
+                    "hash": sResolvedHash
+                },
+                "success": function (response) {
+                    var aRows = Array.isArray(response && response.rows) ? response.rows
+                        : (Array.isArray(response) ? response : []);
+
+                    // Fields that require ID -> display Value resolution via Lookup_Item
+                    var aLookupFields = ["PoF_Assignment", "Damage_Mechanism"];
+
+                    var fnRenderRows = function (oLookupMap) {
+                        oTable.removeAllItems();
+                        aRows.forEach(function (oRow) {
+                            var aCells = aVisibleFields.map(function (oColField) {
+                                var sCellField = oColField.fieldName || oColField.name;
+                                var vVal = oRow[sCellField];
+                                // Resolve lookup ID to display value from lookup map
+                                if (aLookupFields.indexOf(sCellField) !== -1 && oLookupMap && oLookupMap[vVal] !== undefined) {
+                                    vVal = oLookupMap[vVal];
+                                }
+                                // If the field has a nestedField (e.g. lookup), resolve the nested display value
+                                if (vVal !== null && vVal !== undefined && typeof vVal === "object" && oColField.nestedField) {
+                                    var sNestedKey = oColField.nestedField.fieldName || oColField.nestedField.name;
+                                    vVal = sNestedKey ? vVal[sNestedKey] : vVal;
+                                }
+                                return new sap.m.Text({
+                                    text: (vVal !== undefined && vVal !== null) ? String(vVal) : ""
+                                });
+                            });
+                            oTable.addItem(new sap.m.ColumnListItem({ cells: aCells }));
+                        });
+                    };
+
+                    // Collect unique IDs for all lookup fields present in visible columns
+                    var aAllLookupIds = [];
+                    aLookupFields.forEach(function (sLookupField) {
+                        var bFieldVisible = aVisibleFields.some(function (oColField) {
+                            return (oColField.fieldName || oColField.name) === sLookupField;
+                        });
+                        if (bFieldVisible) {
+                            aRows.forEach(function (oRow) {
+                                var vId = oRow[sLookupField];
+                                if (vId !== undefined && vId !== null && aAllLookupIds.indexOf(vId) === -1) {
+                                    aAllLookupIds.push(vId);
+                                }
+                            });
+                        }
+                    });
+
+                    if (aAllLookupIds.length === 0) {
+                        fnRenderRows(null);
+                        return;
+                    }
+
+                    // Single Lookup_Item call covering all lookup field IDs
+                    $.ajax({
+                        "url": self.getCompleteURL() + "/bo/Lookup_Item/",
+                        "method": "GET",
+                        "dataType": "json",
+                        "headers": {
+                            "x-nexus-filter": JSON.stringify({ "where": [{ "field": "LI_ID", "items": aAllLookupIds, "method": "in" }] })
+                        },
+                        "data": {
+                            "hash": sResolvedHash
+                        },
+                        "success": function (oLookupResponse) {
+                            var aLookupRows = Array.isArray(oLookupResponse && oLookupResponse.rows) ? oLookupResponse.rows
+                                : (Array.isArray(oLookupResponse) ? oLookupResponse : []);
+                            var oLookupMap = {};
+                            aLookupRows.forEach(function (oItem) {
+                                oLookupMap[oItem.LI_ID] = oItem.Value;
+                            });
+                            fnRenderRows(oLookupMap);
+                        },
+                        "error": function () {
+                            // If lookup fails, render with raw IDs
+                            fnRenderRows(null);
+                        }
+                    });
+                },
+                "error": function () {
+                    // Silent fail – table stays empty, main form load is unaffected
+                }
+            });
+        },
         getFieldInputType: function (oField) {
             // Map field types to SAP UI5 input types
             if (oField.fieldTypeId === 9) {
@@ -686,7 +901,7 @@ sap.ui.define([
                 $.ajax({
                     "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                    "method": "GET",
-                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
+                    "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -745,7 +960,7 @@ sap.ui.define([
                 this._oFormDialog.setBusy(true);
             }
             $.ajax({
-                "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
+                "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
                 "method": "POST",
                 "contentType": "application/json",
                 "dataType": "json",
@@ -883,7 +1098,7 @@ sap.ui.define([
         _checkPermissions: function (sProductValue, sHash) {
             var self = this;
             $.ajax({
-                "url": self.isRunninglocally() + "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
+                "url": self.getCompleteURL() + "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -964,7 +1179,7 @@ sap.ui.define([
                     return;
                 }
 
-                if (oControl.isA("sap.m.Input")) {
+                if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                     oControl.setValue(String(vValue));
                 } else if (oControl.isA("sap.m.DatePicker")) {
                     var oDate = new Date(vValue);
@@ -993,6 +1208,9 @@ sap.ui.define([
                     } else {
                         // Items not loaded yet - they will be applied when _applyPendingComboBoxValues is called
                     }
+                } else if (oControl.isA("sap.m.Table")) {
+                    // Data is populated by _loadSubTableData – skip, do not overwrite
+                    return;
                 }
             });
         },
@@ -1074,7 +1292,7 @@ sap.ui.define([
                     if (oControl) {
                         var bIsValid = false;
 
-                        if (oControl.isA("sap.m.Input")) {
+                        if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                             bIsValid = oControl.getValue() && oControl.getValue().trim() !== "";
                         } else if (oControl.isA("sap.m.DatePicker")) {
                             bIsValid = oControl.getDateValue() !== null;
@@ -1195,7 +1413,7 @@ sap.ui.define([
                 Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
                     var oControl = self._fieldControlMap[sFieldKey];
                     var vValue;
-                    if (oControl.isA("sap.m.Input")) {
+                    if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                         vValue = oControl.getValue();
                         if (vValue !== "" && vValue !== undefined) {
                             oPayload[sFieldKey] = vValue;
@@ -1229,7 +1447,7 @@ sap.ui.define([
             var fnPostData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
+                    "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
                     "method": "POST",
                     "contentType": "application/json",
                     "dataType": "json",

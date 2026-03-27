@@ -70,7 +70,7 @@ sap.ui.define([
                 this.hash = result.hash;
                 // Fetch Comp_Type to build CT_ID -> Name map
                 $.ajax({
-                    "url":  self.isRunninglocally()+ "/bo/Comp_Type/?pageSize=999",
+                    "url":  self.getCompleteURL()+ "/bo/Comp_Type/?pageSize=999",
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -100,7 +100,7 @@ sap.ui.define([
         _loadCompView: function () {
             var self = this;
             $.ajax({
-                "url":  self.isRunninglocally()+ "/bo/Comp_view/",
+                "url":  self.getCompleteURL()+ "/bo/Comp_view/",
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -252,7 +252,7 @@ sap.ui.define([
             this.setBusyOn();
             // roote api call
             $.ajax({
-                "url":  self.isRunninglocally()+ "/bo/View_Node/",
+                "url":  self.getCompleteURL()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -401,7 +401,7 @@ sap.ui.define([
 
             this.setBusyOn();
             $.ajax({
-                "url": self.isRunninglocally()+ "/bo/View_Node/",
+                "url": self.getCompleteURL()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {

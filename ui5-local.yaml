@@ -38,6 +38,9 @@ server:
           - path: /security
             url: https://trial.nexusic.com/data/icweb.dll
             destination: Nexus
+          - path: /boByKey
+            url: https://trial.nexusic.com/data/icweb.dll
+            destination: Nexus
           - path: /bo
             url: https://trial.nexusic.com/data/icweb.dll
             destination: Nexus

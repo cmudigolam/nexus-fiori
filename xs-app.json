@@ -9,6 +9,12 @@
       "csrfProtection": false
     },
     {
+      "source": "^/boByKey",
+      "destination": "NexusQA",
+      "authenticationType": "none",
+      "csrfProtection": false
+    },
+    {
       "source": "^/bo",
       "destination": "NexusQA",
       "authenticationType": "none",
