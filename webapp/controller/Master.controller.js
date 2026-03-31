@@ -6,6 +6,7 @@ sap.ui.define([
 
     return BaseController.extend("com.nexus.asset.controller.Master", {
         onInit() {
+            this.setBusyOn();
             var oRouter = this.getRouter();
             if (oRouter) {
                 oRouter.getRoute("Master").attachPatternMatched(this.onRouteMatched, this);
@@ -64,13 +65,18 @@ sap.ui.define([
             this.setBusyOn();
             this.getLocalDataModel().setProperty("/treeTable", []);
             this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
+            this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
+            this.getLocalDataModel().setProperty("/trafficLightVersion", 0);
+            this._trafficLightColorMap = null;
             this._compTypeMap = {};
             var self = this;
             this.getoHashToken().done(function (result) {
                 this.hash = result.hash;
+                // Load Traffic Light (Comp_Overlay) list
+                self._loadTrafficLightList(this.hash);
                 // Fetch Comp_Type to build CT_ID -> Name map
                 $.ajax({
-                    "url":  self.getCompleteURL()+ "/bo/Comp_Type/?pageSize=999",
+                    "url":  self.isRunninglocally()+ "/bo/Comp_Type/?pageSize=999",
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -97,10 +103,203 @@ sap.ui.define([
             }.bind(this));
         },
 
+        _loadTrafficLightList: function (sHash) {
+            var self = this;
+            $.ajax({
+                "url": self.isRunninglocally() + "/bo/Comp_Overlay/",
+                "method": "GET",
+                "dataType": "json",
+                "data": { "hash": sHash },
+                "success": function (response) {
+                    var aList = Array.isArray(response && response.rows) ? response.rows : [];
+                    self.getLocalDataModel().setProperty("/trafficLightList", aList);
+                    self.getLocalDataModel().setProperty("/selectedTrafficLight", "");
+                },
+                "error": function () {
+                    self.getLocalDataModel().setProperty("/trafficLightList", []);
+                }
+            });
+        },
+        onTrafficLightSelect: function (oEvent) {
+            var oItem = oEvent.getParameter("selectedItem");
+            var sKey = oItem ? oItem.getKey() : "";
+            this.getLocalDataModel().setProperty("/selectedTrafficLight", sKey);
+
+            if (!sKey) {
+                // Cleared — hide column and reset color map
+                this._trafficLightColorMap = null;
+                this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
+                // Bump version so formatters re-run and produce hidden placeholders
+                var iVer = this.getLocalDataModel().getProperty("/trafficLightVersion") || 0;
+                this.getLocalDataModel().setProperty("/trafficLightVersion", iVer + 1);
+                return;
+            }
+
+            // Reset map so colors from the previously selected traffic light do not bleed
+            // into the new selection.  _fetchTrafficLightColors will rebuild from scratch.
+            this._trafficLightColorMap = null;
+            this._fetchTrafficLightColors(sKey);
+        },
+
+        _fetchTrafficLightColors: function (sTrafficLightKey) {
+            var self = this;
+            var oLocalDataModel = this.getLocalDataModel();
+            var aTree = oLocalDataModel.getProperty("/treeTable") || [];
+
+            // Collect all currently loaded component IDs
+            var aIds = [];
+            self._collectComponentIds(aTree, aIds);
+            console.log("[TL] _fetchTrafficLightColors: collected IDs =", aIds);
+
+            if (!aIds.length) {
+                return;
+            }
+
+            var fnCall = function (sHash) {
+                self.setBusyOn();
+                $.ajax({
+                    "url": self.isRunninglocally() + "/web/?hash=" + encodeURIComponent(sHash) + "&metaTable=TrafficLightValues",
+                    "method": "POST",
+                    "contentType": "application/x-www-form-urlencoded",
+                    "data": "requestType=getTrafficLight&trafficlightKey=" + encodeURIComponent(sTrafficLightKey) + "&componentIds=" + encodeURIComponent(JSON.stringify(aIds.map(Number))),
+                    "success": function (response) {
+                        // Merge into the existing map so any colors accumulated while this
+                        // request was in-flight are preserved.
+                        var oColorMap = self._trafficLightColorMap || {};
+                        var aRows = [];
+                        if (Array.isArray(response && response.Rows)) {
+                            aRows = response.Rows;
+                        } else if (Array.isArray(response && response.rows)) {
+                            aRows = response.rows;
+                        } else if (Array.isArray(response)) {
+                            aRows = response;
+                        }
+                        aRows.forEach(function (oRow) {
+                            // Unwrap {value: ...} wrapper format if present
+                            function unwrap(v) { return (v !== null && v !== undefined && typeof v === "object" && "value" in v) ? v.value : v; }
+                            var vRawId = unwrap(oRow.Component_ID) !== null && unwrap(oRow.Component_ID) !== undefined ? unwrap(oRow.Component_ID) : (unwrap(oRow.componentId) !== null && unwrap(oRow.componentId) !== undefined ? unwrap(oRow.componentId) : (unwrap(oRow.id) !== null && unwrap(oRow.id) !== undefined ? unwrap(oRow.id) : ""));
+                            var sId = String(vRawId);
+                            if (!sId || sId === "null" || sId === "undefined") { return; }
+                            // If TrafficLight is null, mark entry so dot is hidden
+                            var vTrafficLight = unwrap(oRow.TrafficLight);
+                            if (vTrafficLight === null || vTrafficLight === undefined) {
+                                oColorMap[sId] = { color: "", legendName: "", showDot: false };
+                                return;
+                            }
+                            // TrafficLight value IS the color integer; fall back to explicit Color fields
+                            var vColor = (vTrafficLight !== "") ? vTrafficLight
+                                : (unwrap(oRow.Color) || unwrap(oRow.color) || unwrap(oRow.TLV_Color) || unwrap(oRow.tlvColor) || "");
+                            var sLegendName = String(unwrap(oRow.LegendName) !== null && unwrap(oRow.LegendName) !== undefined ? unwrap(oRow.LegendName) : (unwrap(oRow.legendName) || ""));
+                            if (vColor !== "" && vColor !== null && vColor !== undefined) {
+                                var sHex = isNaN(Number(vColor)) ? String(vColor) : self._tcolorToHex(Number(vColor));
+                                if (sHex) { oColorMap[sId] = { color: sHex, legendName: sLegendName, showDot: true }; }
+                            }
+                        });
+                        self._trafficLightColorMap = oColorMap;
+                        console.log("[TL] _fetchTrafficLightColors: colorMap after merge =", JSON.stringify(oColorMap));
+                        oLocalDataModel.setProperty("/trafficLightColumnVisible", true);
+                        // Bump version so ALL formatTrafficDot formatters re-run
+                        // and read the freshly updated _trafficLightColorMap.
+                        var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
+                        oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
+                        self.setBusyOff();
+                    },
+                    "error": function () {
+                        self.setBusyOff();
+                        sap.m.MessageToast.show("Failed to load traffic light data");
+                    }
+                });
+            };
+
+            if (this.hash) {
+                fnCall(this.hash);
+            } else {
+                this.getoHashToken().done(function (result) {
+                    if (result && result.hash) { fnCall(result.hash); }
+                });
+            }
+        },
+
+        _collectComponentIds: function (aNodes, aIds) {
+            var self = this;
+            aNodes.forEach(function (oNode) {
+                // Skip placeholder rows (no Component_ID)
+                if (!oNode.Component_ID && oNode.Component_ID !== 0) { return; }
+                // Unwrap {value: ...} wrapper that some API responses produce
+                var vId = (oNode.Component_ID !== null && oNode.Component_ID !== undefined && typeof oNode.Component_ID === "object" && "value" in oNode.Component_ID) ? oNode.Component_ID.value : oNode.Component_ID;
+                var sId = String(vId);
+                if (!sId || sId === "null" || sId === "undefined") { return; }
+                if (aIds.indexOf(sId) === -1) { aIds.push(sId); }
+                if (Array.isArray(oNode.rows) && oNode.rows.length > 0) {
+                    self._collectComponentIds(oNode.rows, aIds);
+                }
+            });
+        },
+
+        _clearTrafficLightColors: function (aNodes) {
+            var self = this;
+            aNodes.forEach(function (oNode) {
+                oNode.trafficLightDot = "";
+                if (Array.isArray(oNode.rows) && oNode.rows.length > 0) {
+                    self._clearTrafficLightColors(oNode.rows);
+                }
+            });
+        },
+
+        /**
+         * Resolves the Component_ID to an entry in _trafficLightColorMap.
+         * @private
+         */
+        _resolveTrafficEntry: function (vComponentId) {
+            if (vComponentId === null || vComponentId === undefined) { return null; }
+            var sId = String(typeof vComponentId === "object" && "value" in vComponentId ? vComponentId.value : vComponentId);
+            if (!sId || sId === "null" || sId === "undefined") { return null; }
+            var oMap = this._trafficLightColorMap || {};
+            return oMap[sId] || null;
+        },
+
+        /**
+         * Formatter: returns the hex color for the traffic-light Icon.
+         */
+        formatTrafficDotColor: function (vComponentId, iVersion) {
+            var oEntry = this._resolveTrafficEntry(vComponentId);
+            if (oEntry && oEntry.showDot && oEntry.color) {
+                return oEntry.color;
+            }
+            return "Transparent";
+        },
+
+        /**
+         * Formatter: returns whether the traffic-light Icon should be visible.
+         */
+        formatTrafficDotVisible: function (vComponentId, iVersion) {
+            var oEntry = this._resolveTrafficEntry(vComponentId);
+            return !!(oEntry && oEntry.showDot && oEntry.color);
+        },
+
+        /**
+         * Formatter: returns a tooltip string for the traffic-light Icon.
+         */
+        formatTrafficDotTooltip: function (vComponentId, iVersion) {
+            var oEntry = this._resolveTrafficEntry(vComponentId);
+            if (oEntry && oEntry.showDot && oEntry.legendName) {
+                return "Rolled up risk: " + oEntry.legendName;
+            }
+            return "";
+        },
+
+        _tcolorToHex: function (tcolor) {
+            if (isNaN(tcolor) || tcolor < 0) { return null; }
+            var v = tcolor >>> 0;
+            var r = v & 0xFF;
+            var g = (v >>> 8) & 0xFF;
+            var b = (v >>> 16) & 0xFF;
+            return "#" + [r, g, b].map(function (n) { return n.toString(16).padStart(2, "0"); }).join("").toUpperCase();
+        },
         _loadCompView: function () {
             var self = this;
             $.ajax({
-                "url":  self.getCompleteURL()+ "/bo/Comp_view/",
+                "url":  self.isRunninglocally()+ "/bo/Comp_view/",
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -252,7 +451,7 @@ sap.ui.define([
             this.setBusyOn();
             // roote api call
             $.ajax({
-                "url":  self.getCompleteURL()+ "/bo/View_Node/",
+                "url":  self.isRunninglocally()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -274,11 +473,16 @@ sap.ui.define([
                         if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
                             aMissingAssetTypes.push(sCtId);
                         }
+                        // Unwrap {value: ...} wrapper on Component_ID so downstream lookups work
+                        var vCompId = oRow.Component_ID;
+                        if (vCompId !== null && vCompId !== undefined && typeof vCompId === "object" && "value" in vCompId) { vCompId = vCompId.value; }
                         var oMappedRow = Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
-                            rows: aChildRows
+                            rows: aChildRows,
+                            trafficLightDot: "",
+                            Component_ID: vCompId
                         });
                         this._normalizeFullLocation(oMappedRow);
                         return oMappedRow;
@@ -292,7 +496,18 @@ sap.ui.define([
                         return 0;
                     });
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
-                    
+
+                    // If a traffic light overlay is selected, check the web API response for TrafficLight
+                    // values, compare Component_ID from it with View_Node Component_IDs, and display
+                    // the color in column 3 for matching nodes.
+                    var sSelectedTrafficLight = this.getLocalDataModel().getProperty("/selectedTrafficLight");
+                    if (sSelectedTrafficLight) {
+                        // Reset map so old-asset colors (from a previous _loadRootNodes call) are
+                        // not preserved when a completely new asset hierarchy is loaded.
+                        this._trafficLightColorMap = null;
+                        this._fetchTrafficLightColors(sSelectedTrafficLight);
+                    }
+
                     // Populate nodeInfoArray with root nodes so they're available for auto-selection
                     aRows.forEach(function(oRow) {
                         this.addNodeToInfoArr(oRow);
@@ -401,7 +616,7 @@ sap.ui.define([
 
             this.setBusyOn();
             $.ajax({
-                "url": self.getCompleteURL()+ "/bo/View_Node/",
+                "url": self.isRunninglocally()+ "/bo/View_Node/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -423,11 +638,16 @@ sap.ui.define([
                         if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
                             aMissingAssetTypes.push(sCtId);
                         }
+                        // Unwrap {value: ...} wrapper on Component_ID so downstream lookups work
+                        var vCompId = oRow.Component_ID;
+                        if (vCompId !== null && vCompId !== undefined && typeof vCompId === "object" && "value" in vCompId) { vCompId = vCompId.value; }
                         var oMappedRow = Object.assign({}, oRow, {
                             Name: sAssetName,
                             AssetType: sAssetType,
                             Has_Children: bHasChild,
-                            rows: aChildRows
+                            rows: aChildRows,
+                            trafficLightDot: "",
+                            Component_ID: vCompId
                         });
                         this._normalizeFullLocation(oMappedRow);
                         return oMappedRow;
@@ -445,14 +665,123 @@ sap.ui.define([
                     aRows.forEach(function(oRow) {
                         this.addNodeToInfoArr(oRow);
                     }.bind(this));
-                    this.getLocalDataModel().setProperty(sPath, aRows);
-                    this.setBusyOff();
+                    var oLocalDataModel = self.getLocalDataModel();
+                    var sSelectedKey = oLocalDataModel.getProperty("/selectedTrafficLight");
+
+                    // Put child rows into the model (triggers binding refresh).
+                    oLocalDataModel.setProperty(sPath, aRows);
+                    self.setBusyOff();
+
+                    if (sSelectedKey) {
+                        // Fetch new child colors from API; the success handler
+                        // bumps trafficLightVersion so formatters re-run.
+                        self._fetchAndMergeChildColors(sSelectedKey, aRows);
+                    } else {
+                        oLocalDataModel.refresh(true);
+                    }
                 }.bind(this),
                 "error": function (errorData) {
                     MessageBox.error(this.getResourceBundle().getText("msgErrorFetchingChildNodes"));
                     this.setBusyOff();
                 }.bind(this)
             });
+        },
+
+        /**
+         * Called after a tree node expands and its children are written to the model.
+         * 1. Re-applies the existing color map immediately so parent nodes keep their dots.
+         * 2. Fetches traffic light colors for the new child IDs from the API.
+         * 3. Merges ONLY the entries whose Component_ID was explicitly requested into the
+         *    map — server-recalculated ancestor entries in the response are ignored to
+         *    prevent them from overwriting already-correct parent colors.
+         *
+         * @param {string} sKey         - Selected traffic light overlay key
+         * @param {Array}  aNewChildRows - Newly loaded child rows from the expand response
+         */
+        _fetchAndMergeChildColors: function (sKey, aNewChildRows) {
+            var self = this;
+            var oLocalDataModel = this.getLocalDataModel();
+
+            // Collect Component_IDs for the new children only
+            var aNewIds = [];
+            this._collectComponentIds(aNewChildRows, aNewIds);
+            console.log("[TL] _fetchAndMergeChildColors: new child IDs =", aNewIds);
+            if (!aNewIds.length) { return; }
+
+            // Build a Set-like lookup so we can filter the response to requested IDs only
+            var oRequestedIds = {};
+            aNewIds.forEach(function (sId) { oRequestedIds[sId] = true; });
+
+            var fnCall = function (sHash) {
+                self.setBusyOn();
+                $.ajax({
+                    "url": self.isRunninglocally() + "/web/?hash=" + encodeURIComponent(sHash) + "&metaTable=TrafficLightValues",
+                    "method": "POST",
+                    "contentType": "application/x-www-form-urlencoded",
+                    "data": "requestType=getTrafficLight&trafficlightKey=" + encodeURIComponent(sKey) + "&componentIds=" + encodeURIComponent(JSON.stringify(aNewIds.map(Number))),
+                    "success": function (response) {
+                        var aRows = [];
+                        if (Array.isArray(response && response.Rows)) { aRows = response.Rows; }
+                        else if (Array.isArray(response && response.rows)) { aRows = response.rows; }
+                        else if (Array.isArray(response)) { aRows = response; }
+
+                        function unwrap(v) { return (v !== null && v !== undefined && typeof v === "object" && "value" in v) ? v.value : v; }
+
+                        var oColorMap = self._trafficLightColorMap || {};
+                        aRows.forEach(function (oRow) {
+                            var vRawId = unwrap(oRow.Component_ID) !== null && unwrap(oRow.Component_ID) !== undefined ? unwrap(oRow.Component_ID)
+                                : (unwrap(oRow.componentId) !== null && unwrap(oRow.componentId) !== undefined ? unwrap(oRow.componentId)
+                                : (unwrap(oRow.id) !== null && unwrap(oRow.id) !== undefined ? unwrap(oRow.id) : ""));
+                            var sId = String(vRawId);
+                            if (!sId || sId === "null" || sId === "undefined") { return; }
+
+                            // Only accept entries we explicitly requested — ignore server-recalculated
+                            // ancestor values that would overwrite already-correct parent colors.
+                            if (!oRequestedIds[sId]) { return; }
+
+                            var vTrafficLight = unwrap(oRow.TrafficLight);
+                            if (vTrafficLight === null || vTrafficLight === undefined) {
+                                // Never overwrite an existing showDot:true entry with showDot:false
+                                if (!oColorMap[sId] || !oColorMap[sId].showDot) {
+                                    oColorMap[sId] = { color: "", legendName: "", showDot: false };
+                                }
+                                return;
+                            }
+                            var vColor = (vTrafficLight !== "") ? vTrafficLight
+                                : (unwrap(oRow.Color) || unwrap(oRow.color) || unwrap(oRow.TLV_Color) || unwrap(oRow.tlvColor) || "");
+                            var sLegendName = String(unwrap(oRow.LegendName) !== null && unwrap(oRow.LegendName) !== undefined ? unwrap(oRow.LegendName) : (unwrap(oRow.legendName) || ""));
+                            if (vColor !== "" && vColor !== null && vColor !== undefined) {
+                                var sHex = isNaN(Number(vColor)) ? String(vColor) : self._tcolorToHex(Number(vColor));
+                                if (sHex) { oColorMap[sId] = { color: sHex, legendName: sLegendName, showDot: true }; }
+                            }
+                        });
+
+                        self._trafficLightColorMap = oColorMap;
+                        console.log("[TL] _fetchAndMergeChildColors: colorMap after merge =", JSON.stringify(oColorMap));
+
+                        oLocalDataModel.setProperty("/trafficLightColumnVisible", true);
+                        // Bump version so ALL formatTrafficDot formatters re-run
+                        // and read the freshly updated _trafficLightColorMap.
+                        var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
+                        oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
+                        self.setBusyOff();
+                    },
+                    "error": function () {
+                        // On error, bump version so existing parent dots remain visible
+                        var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
+                        oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
+                        self.setBusyOff();
+                    }
+                });
+            };
+
+            if (this.hash) {
+                fnCall(this.hash);
+            } else {
+                this.getoHashToken().done(function (result) {
+                    if (result && result.hash) { fnCall(result.hash); }
+                });
+            }
         },
 
         addNodeToInfoArr: function(nodeObj) {

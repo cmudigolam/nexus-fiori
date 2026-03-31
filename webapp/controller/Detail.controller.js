@@ -218,7 +218,7 @@ sap.ui.define([
             var fnCallTableApi = function (sResolvedHash) {
                 this.setBusyOn();
                 $.ajax({
-                    "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName),
+                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -268,7 +268,7 @@ sap.ui.define([
             var fnFetchExternalReferences = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": self.getCompleteURL() + "/bo/External_References/" + encodeURIComponent(sComponentId),
+                    "url": self.isRunninglocally() + "/bo/External_References/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -400,6 +400,8 @@ sap.ui.define([
 
             // Build form content dynamically
             self._fieldControlMap = {};
+            self._colourInputMap = {};
+            self._colourValueMap = {};
             self._categoryTabMap = {};
             self._pendingComboBoxValues = {};
             self._pendingLookupCount = 0;
@@ -495,12 +497,16 @@ sap.ui.define([
                         var sFieldKey = oField.fieldName || oField.name;
                         if (sFieldKey) {
                             self._fieldControlMap[sFieldKey] = oInput;
+                            if (/colour/i.test(oField.name || oField.fieldName || "")) {
+                                self._colourInputMap[sFieldKey] = oInput;
+                            }
                         }
 
                         if (bVisible && Number(oField.fieldTypeId) == 40 && !oField.subTableId) {
                             // Create Button
                             var oButton = new sap.m.Button({
-                                text: "ƒ"
+                                text: "ƒ",
+                                press: self._onFieldImageButtonPress.bind(self, sFieldKey)
                             });
                             oButton.addStyleClass("italicButton");
 
@@ -640,7 +646,7 @@ sap.ui.define([
 
             var fnFetch = function (sResolvedHash) {
                 $.ajax({
-                    "url": self.getCompleteURL() + "/bo/Lookup_Item/",
+                    "url": self.isRunninglocally() + "/bo/Lookup_Item/",
                     "method": "GET",
                     "dataType": "json",
                     "headers": {
@@ -708,7 +714,7 @@ sap.ui.define([
 
             var fnFetch = function (sResolvedHash) {
                 $.ajax({
-                    "url": self.getCompleteURL() + "/boByKey/" + encodeURIComponent(sSubTableId),
+                    "url": self.isRunninglocally() + "/boByKey/" + encodeURIComponent(sSubTableId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -778,7 +784,7 @@ sap.ui.define([
             }
 
             $.ajax({
-                "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sCategoryName) + "/",
+                "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sCategoryName) + "/",
                 "method": "GET",
                 "dataType": "json",
                 "headers": {
@@ -841,7 +847,7 @@ sap.ui.define([
 
                     // Single Lookup_Item call covering all lookup field IDs
                     $.ajax({
-                        "url": self.getCompleteURL() + "/bo/Lookup_Item/",
+                        "url": self.isRunninglocally() + "/bo/Lookup_Item/",
                         "method": "GET",
                         "dataType": "json",
                         "headers": {
@@ -899,9 +905,9 @@ sap.ui.define([
             var fnFetchData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url":  self.getCompleteURL()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
+                    "url":  self.isRunninglocally()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                    "method": "GET",
-                    "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
+                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
                     "data": {
@@ -960,7 +966,7 @@ sap.ui.define([
                 this._oFormDialog.setBusy(true);
             }
             $.ajax({
-                "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
+                "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
                 "method": "POST",
                 "contentType": "application/json",
                 "dataType": "json",
@@ -1094,11 +1100,123 @@ sap.ui.define([
                     }
                 }
             }
+
+            // Re-apply colour backgrounds after SAPUI5 flushes its render queue
+            // (setVisible above triggers re-render which wipes inline styles)
+            var self = this;
+            setTimeout(function () { self._reapplyColourSwatches(); }, 0);
+        },
+        _onFieldImageButtonPress: function (sFieldKey) {
+            var oLocalDataModel = this.getLocalDataModel();
+            var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
+            var sTableName = this._formDataTableName;
+            var sHash = oLocalDataModel.getProperty("/HashToken");
+            var self = this;
+
+            var fnFetch = function (sResolvedHash) {
+                var sUrl = self.isRunninglocally() +
+                    "/bo/" + encodeURIComponent(sTableName) +
+                    "/" + encodeURIComponent(sComponentId) +
+                    "/" + encodeURIComponent(sFieldKey) +
+                    "?hash=" + encodeURIComponent(sResolvedHash) +
+                    "&format=png";
+
+                fetch(sUrl, {
+                    headers: {
+                        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+                    }
+                })
+                .then(function (oResponse) {
+                    if (!oResponse.ok) {
+                        MessageToast.show("Image not available");
+                        return null;
+                    }
+                    return oResponse.blob();
+                })
+                .then(function (oBlob) {
+                    if (!oBlob) { return; }
+                    var sObjectUrl = URL.createObjectURL(oBlob);
+                    self._showFieldImagePopup(sObjectUrl, sFieldKey);
+                })
+                .catch(function () {
+                    MessageToast.show("Failed to load image");
+                });
+            };
+
+            if (sHash) {
+                fnFetch(sHash);
+            } else {
+                this.getoHashToken().done(function (oResult) {
+                    if (oResult && oResult.hash) { fnFetch(oResult.hash); }
+                });
+            }
+        },
+        _showFieldImagePopup: function (sSrc, sTitle) {
+            // Revoke previous object URL to avoid memory leaks
+            if (this._fieldImageObjectUrl) {
+                URL.revokeObjectURL(this._fieldImageObjectUrl);
+            }
+            this._fieldImageObjectUrl = sSrc;
+
+            if (!this._oFieldImageDialog) {
+                this._oFieldImageDialog = new sap.m.Dialog({
+                    stretch: false,
+                    resizable: true,
+                    draggable: true,
+                    contentWidth: "700px",
+                    contentHeight: "600px",
+                    afterClose: function () {
+                        // Clean up object URL after dialog closes
+                        if (this._fieldImageObjectUrl) {
+                            URL.revokeObjectURL(this._fieldImageObjectUrl);
+                            this._fieldImageObjectUrl = null;
+                        }
+                    }.bind(this),
+                    buttons: [
+                        new sap.m.Button({
+                            text: "Close",
+                            press: function () {
+                                this._oFieldImageDialog.close();
+                            }.bind(this)
+                        })
+                    ]
+                });
+                this.getView().addDependent(this._oFieldImageDialog);
+            }
+
+            // Update title and image each time
+            this._oFieldImageDialog.setTitle(sTitle || "");
+            this._oFieldImageDialog.destroyContent();
+            this._oFieldImageDialog.addContent(
+                new sap.m.Image({
+                    src: sSrc,
+                    width: "100%",
+                    height: "100%",
+                    densityAware: false
+                })
+            );
+            this._oFieldImageDialog.open();
+        },
+        _reapplyColourSwatches: function () {
+            var self = this;
+            if (!this._colourInputMap || !this._colourValueMap) { return; }
+            Object.keys(this._colourInputMap).forEach(function (sFieldKey) {
+                var oInput = self._colourInputMap[sFieldKey];
+                var sHex = self._colourValueMap[sFieldKey];
+                if (!oInput || !sHex) { return; }
+                oInput.setValue("");
+                var oInner = oInput.getDomRef("inner");
+                if (oInner) {
+                    oInner.style.backgroundColor = sHex;
+                    oInner.style.color = "#000000";
+                    oInner.style.fontWeight = "bold";
+                }
+            });
         },
         _checkPermissions: function (sProductValue, sHash) {
             var self = this;
             $.ajax({
-                "url": self.getCompleteURL() + "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
+                "url": self.isRunninglocally() + "/bo/Lookup_Item/" + encodeURIComponent(sProductValue),
                 "method": "GET",
                 "dataType": "json",
                 "data": {
@@ -1153,6 +1271,14 @@ sap.ui.define([
                 }
             }
         },
+        _tcolorToCssHex: function (tcolor) {
+            if (isNaN(tcolor) || tcolor < 0) { return null; }
+            var v = tcolor >>> 0;
+            var r = v & 0xFF;
+            var g = (v >>> 8) & 0xFF;
+            var b = (v >>> 16) & 0xFF;
+            return "#" + [r, g, b].map(function (n) { return n.toString(16).padStart(2, "0"); }).join("").toUpperCase();
+        },
         _populateFormFields: function (oData) {
             if (!oData || !this._fieldControlMap) {
                 return;
@@ -1181,6 +1307,30 @@ sap.ui.define([
 
                 if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                     oControl.setValue(String(vValue));
+                    if (self._colourInputMap && self._colourInputMap[sFieldKey] && oControl.isA("sap.m.Input")) {
+                        var sHex = self._tcolorToCssHex(Number(vValue));
+                        if (sHex) {
+                            oControl.setValue("");
+                            self._colourValueMap[sFieldKey] = sHex;
+                            var oInner = oControl.getDomRef("inner");
+                            if (oInner) {
+                                oInner.style.backgroundColor = sHex;
+                                oInner.style.color = "#000000";
+                                oInner.style.fontWeight = "bold";
+                            } else {
+                                oControl.addEventDelegate({
+                                    onAfterRendering: function () {
+                                        var oDomInner = oControl.getDomRef("inner");
+                                        if (oDomInner) {
+                                            oDomInner.style.backgroundColor = sHex;
+                                            oDomInner.style.color = "#000000";
+                                            oDomInner.style.fontWeight = "bold";
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
                 } else if (oControl.isA("sap.m.DatePicker")) {
                     var oDate = new Date(vValue);
                     if (!isNaN(oDate.getTime())) {
@@ -1447,7 +1597,7 @@ sap.ui.define([
             var fnPostData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url": self.getCompleteURL() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
+                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sResolvedHash),
                     "method": "POST",
                     "contentType": "application/json",
                     "dataType": "json",

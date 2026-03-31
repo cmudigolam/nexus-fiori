@@ -32,13 +32,8 @@
                     ariaLabelledBy="pageTitle">
                     <tree:extension>
                         <OverflowToolbar style="Clear" class="assetMasterToolbar">
-                            <Title text="{i18n>lblRootAsset}" level="H5">
-                                <layoutData>
-                                    <OverflowToolbarLayoutData priority="Low" />
-                                </layoutData>
-                            </Title>
                             <ToolbarSpacer />
-                            <Label text="{i18n>lblAsset}" labelFor="assetSelector">
+                            <Label text="{i18n>lblAsset}" labelFor="assetSelector" visible="false">
                                 <layoutData>
                                     <OverflowToolbarLayoutData priority="Low" />
                                 </layoutData>
@@ -55,19 +50,48 @@
                                 </layoutData>
                                 <core:Item key="{LocalDataModel>CV_ID}" text="{LocalDataModel>Name}" />
                             </ComboBox>
+                            <Label text="Traffic Light" visible="false">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="Low" />
+                                </layoutData>
+                            </Label>
+                            <ComboBox
+                                id="trafficLightSelector"
+                                width="100%"
+                                placeholder="All"
+                                showSecondaryValues="false"
+                                items="{LocalDataModel>/trafficLightList}"
+                                selectedKey="{LocalDataModel>/selectedTrafficLight}"
+                                selectionChange="onTrafficLightSelect">
+                                <layoutData>
+                                    <OverflowToolbarLayoutData priority="NeverOverflow" minWidth="8rem" maxWidth="16rem" shrinkable="true" />
+                                </layoutData>
+                                <core:Item key="{LocalDataModel>CO_ID}" text="{LocalDataModel>Name}" />
+                            </ComboBox>
                         </OverflowToolbar>
                     </tree:extension>
                 <tree:columns>
-                    <tree:Column id="colCategories" width="60%">
+                    <tree:Column id="colCategories" width="55%">
                         <Label id="lblCategories" text="{i18n>lblAssetName}"/>
                         <tree:template>
                             <Text id="txtCategoryName" text="{LocalDataModel>Name}" />
                         </tree:template>
                     </tree:Column>
-                    <tree:Column id="colAssetType" width="40%">
+                    <tree:Column id="colAssetType" width="35%">
                         <Label id="lblAssetType" text="{i18n>lblAssetType}"/>
                         <tree:template>
                             <Text id="txtAssetType" text="{LocalDataModel>AssetType}" />
+                        </tree:template>
+                    </tree:Column>
+                    <tree:Column id="colTrafficLight" width="10%" visible="{LocalDataModel>/trafficLightColumnVisible}" hAlign="Center">
+                        <Label text="T" />
+                        <tree:template>
+                            <core:Icon
+                                src="sap-icon://circle-task-2"
+                                size="1.125rem"
+                                color="{parts: [{path: 'LocalDataModel>Component_ID'}, {path: 'LocalDataModel>/trafficLightVersion'}], formatter: '.formatTrafficDotColor'}"
+                                visible="{parts: [{path: 'LocalDataModel>Component_ID'}, {path: 'LocalDataModel>/trafficLightVersion'}], formatter: '.formatTrafficDotVisible'}"
+                                tooltip="{parts: [{path: 'LocalDataModel>Component_ID'}, {path: 'LocalDataModel>/trafficLightVersion'}], formatter: '.formatTrafficDotTooltip'}" />
                         </tree:template>
                     </tree:Column>
                 </tree:columns>
