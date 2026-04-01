@@ -406,6 +406,7 @@ sap.ui.define([
             self._pendingComboBoxValues = {};
             self._pendingLookupCount = 0;
             self._formDataTableName = sTableName;
+            self._subTableControls = [];
             self.buildFormContent(oFormData, oCategorizedFields);
 
             // Set busy indicator to show immediately when dialog opens
@@ -459,6 +460,9 @@ sap.ui.define([
                             if (sFieldKey) {
                                 self._fieldControlMap[sFieldKey] = oTable;
                             }
+                            // Track for form-level save
+                            self._subTableControls = self._subTableControls || [];
+                            self._subTableControls.push(oTable);
                             // Wrap in a titled VBox so the field label appears above the table
                             var oTitleLabel = new sap.m.Label({
                                 text: oField.name || oField.fieldName,
@@ -738,15 +742,76 @@ sap.ui.define([
                         // Use the field's own fieldName from the parent form as the category name.
                         // response.name is a display name (may have spaces) and should not be used
                         // as the /bo/ API path segment.
-                        var sCategoryName = response.tableName  || "";
-                        if (sCategoryName) {
-                            self._loadSubTableData(oTable, sCategoryName, aVisibleFields, sResolvedHash);
+                        var sCategoryName = response.tableName || "";
+                        oTable.data("subTableName", sCategoryName);
+
+                        // Enable row selection for delete operations
+                        oTable.setMode("MultiSelect");
+
+                        // Add toolbar with Add / Delete buttons (Save is handled by the form Save button)
+                        oTable.setHeaderToolbar(new sap.m.Toolbar({
+                            content: [
+                                new sap.m.ToolbarSpacer(),
+                                new sap.m.Button({
+                                    text: "Add",
+                                    icon: "sap-icon://add",
+                                    press: self._onSubTableAddRow.bind(self, oTable)
+                                }),
+                                new sap.m.Button({
+                                    text: "Delete",
+                                    icon: "sap-icon://delete",
+                                    press: self._onSubTableDeleteRows.bind(self, oTable, sCategoryName, sResolvedHash)
+                                })
+                            ]
+                        }));
+
+                        // Pre-load lookup items for every dropdown column so editable cells
+                        // can be populated before rows are rendered.
+                        var aDropdownFields = aVisibleFields.filter(function (oColField) {
+                            return !!oColField.lookupListId;
+                        });
+                        var oSubTableLookups = {};
+                        oTable.data("subTableLookups", oSubTableLookups);
+
+                        var fnProceedWithData = function () {
+                            if (sCategoryName) {
+                                self._loadSubTableData(oTable, sCategoryName, aVisibleFields, sResolvedHash, oSubTableLookups);
+                            }
+                            self._pendingLookupCount--;
+                            if (self._pendingLookupCount === 0 && self._formDataTableName) {
+                                self._loadFormData(self._formDataTableName);
+                            }
+                        };
+
+                        if (aDropdownFields.length === 0) {
+                            fnProceedWithData();
+                            return;
                         }
 
-                        self._pendingLookupCount--;
-                        if (self._pendingLookupCount === 0 && self._formDataTableName) {
-                            self._loadFormData(self._formDataTableName);
-                        }
+                        var iRemainingLookups = aDropdownFields.length;
+                        aDropdownFields.forEach(function (oColField) {
+                            var sFieldKey = oColField.fieldName || oColField.name;
+                            $.ajax({
+                                "url": self.isRunninglocally() + "/bo/Lookup_Item/",
+                                "method": "GET",
+                                "dataType": "json",
+                                "headers": {
+                                    "X-NEXUS-Filter": JSON.stringify({ "where": [{ "field": "LL_ID", "method": "eq", "value": oColField.lookupListId }] }),
+                                    "X-NEXUS-Sort": JSON.stringify([{ "field": "Value", "ascending": true }])
+                                },
+                                "data": { "hash": sResolvedHash },
+                                "success": function (resp) {
+                                    oSubTableLookups[sFieldKey] = Array.isArray(resp && resp.rows) ? resp.rows : [];
+                                    iRemainingLookups--;
+                                    if (iRemainingLookups === 0) { fnProceedWithData(); }
+                                },
+                                "error": function () {
+                                    oSubTableLookups[sFieldKey] = [];
+                                    iRemainingLookups--;
+                                    if (iRemainingLookups === 0) { fnProceedWithData(); }
+                                }
+                            });
+                        });
                     },
                     "error": function () {
                         MessageToast.show(self.getResourceBundle().getText("msgErrorLoadingLookupItems"));
@@ -774,7 +839,7 @@ sap.ui.define([
                 self._pendingLookupCount--;
             });
         },
-        _loadSubTableData: function (oTable, sCategoryName, aVisibleFields, sResolvedHash) {
+        _loadSubTableData: function (oTable, sCategoryName, aVisibleFields, sResolvedHash, oSubTableLookups) {
             var oLocalDataModel = this.getLocalDataModel();
             var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
             var self = this;
@@ -789,7 +854,6 @@ sap.ui.define([
                 "dataType": "json",
                 "headers": {
                     "x-nexus-filter": JSON.stringify({ "where": [{ "field": "Component_ID", "value": sComponentId }] })
-                    //"X-NEXUS-Sort": JSON.stringify([{ "field": "Component_ID" }])
                 },
                 "data": {
                     "hash": sResolvedHash
@@ -798,81 +862,106 @@ sap.ui.define([
                     var aRows = Array.isArray(response && response.rows) ? response.rows
                         : (Array.isArray(response) ? response : []);
 
-                    // Fields that require ID -> display Value resolution via Lookup_Item
-                    var aLookupFields = ["PoF_Assignment", "Damage_Mechanism"];
-
-                    var fnRenderRows = function (oLookupMap) {
-                        oTable.removeAllItems();
-                        aRows.forEach(function (oRow) {
-                            var aCells = aVisibleFields.map(function (oColField) {
-                                var sCellField = oColField.fieldName || oColField.name;
-                                var vVal = oRow[sCellField];
-                                // Resolve lookup ID to display value from lookup map
-                                if (aLookupFields.indexOf(sCellField) !== -1 && oLookupMap && oLookupMap[vVal] !== undefined) {
-                                    vVal = oLookupMap[vVal];
-                                }
-                                // If the field has a nestedField (e.g. lookup), resolve the nested display value
-                                if (vVal !== null && vVal !== undefined && typeof vVal === "object" && oColField.nestedField) {
+                    oTable.removeAllItems();
+                    aRows.forEach(function (oRow) {
+                        var aCells = aVisibleFields.map(function (oColField) {
+                            var sCellField = oColField.fieldName || oColField.name;
+                            var vVal = oRow[sCellField];
+                            // Resolve nested display value (e.g. lookup object)
+                            if (vVal !== null && vVal !== undefined && typeof vVal === "object" && oColField.nestedField) {
+                                if (oColField.lookupListId) {
+                                    // For lookup fields use Comments as the display/matching value
+                                    vVal = vVal["Comments"] || vVal[oColField.nestedField.fieldName || oColField.nestedField.name];
+                                } else {
                                     var sNestedKey = oColField.nestedField.fieldName || oColField.nestedField.name;
                                     vVal = sNestedKey ? vVal[sNestedKey] : vVal;
                                 }
-                                return new sap.m.Text({
-                                    text: (vVal !== undefined && vVal !== null) ? String(vVal) : ""
-                                });
-                            });
-                            oTable.addItem(new sap.m.ColumnListItem({ cells: aCells }));
+                            }
+                            return self._createSubTableCellControl(oColField, vVal, oSubTableLookups || {});
                         });
-                    };
-
-                    // Collect unique IDs for all lookup fields present in visible columns
-                    var aAllLookupIds = [];
-                    aLookupFields.forEach(function (sLookupField) {
-                        var bFieldVisible = aVisibleFields.some(function (oColField) {
-                            return (oColField.fieldName || oColField.name) === sLookupField;
-                        });
-                        if (bFieldVisible) {
-                            aRows.forEach(function (oRow) {
-                                var vId = oRow[sLookupField];
-                                if (vId !== undefined && vId !== null && aAllLookupIds.indexOf(vId) === -1) {
-                                    aAllLookupIds.push(vId);
-                                }
-                            });
-                        }
-                    });
-
-                    if (aAllLookupIds.length === 0) {
-                        fnRenderRows(null);
-                        return;
-                    }
-
-                    // Single Lookup_Item call covering all lookup field IDs
-                    $.ajax({
-                        "url": self.isRunninglocally() + "/bo/Lookup_Item/",
-                        "method": "GET",
-                        "dataType": "json",
-                        "headers": {
-                            "x-nexus-filter": JSON.stringify({ "where": [{ "field": "LI_ID", "items": aAllLookupIds, "method": "in" }] })
-                        },
-                        "data": {
-                            "hash": sResolvedHash
-                        },
-                        "success": function (oLookupResponse) {
-                            var aLookupRows = Array.isArray(oLookupResponse && oLookupResponse.rows) ? oLookupResponse.rows
-                                : (Array.isArray(oLookupResponse) ? oLookupResponse : []);
-                            var oLookupMap = {};
-                            aLookupRows.forEach(function (oItem) {
-                                oLookupMap[oItem.LI_ID] = oItem.Value;
-                            });
-                            fnRenderRows(oLookupMap);
-                        },
-                        "error": function () {
-                            // If lookup fails, render with raw IDs
-                            fnRenderRows(null);
-                        }
+                        var oItem = new sap.m.ColumnListItem({ cells: aCells });
+                        oItem.data("rowData", oRow);
+                        oTable.addItem(oItem);
                     });
                 },
                 "error": function () {
                     // Silent fail – table stays empty, main form load is unaffected
+                }
+            });
+        },
+        _createSubTableCellControl: function (oColField, vVal, oSubTableLookups) {
+            var sFieldKey = oColField.fieldName || oColField.name;
+            var aLookupItems = oSubTableLookups && oSubTableLookups[sFieldKey];
+
+            if (oColField.lookupListId && aLookupItems) {
+                var oSelect = new sap.m.Select({ width: "100%", autoAdjustWidth: false });
+                // Add a blank first item so nothing is pre-selected when value is absent
+                oSelect.addItem(new sap.ui.core.Item({ key: "", text: "" }));
+                aLookupItems.forEach(function (oLookupItem) {
+                    // Key = LI_ID (raw integer stored in data); Text = Comments (display label)
+                    var sKey = String(oLookupItem.LI_ID || oLookupItem.Value || "");
+                    var sText = String(oLookupItem.Comments || oLookupItem.Value || oLookupItem.Name || "");
+                    oSelect.addItem(new sap.ui.core.Item({ key: sKey, text: sText }));
+                });
+                if (vVal !== undefined && vVal !== null && vVal !== "") {
+                    oSelect.setSelectedKey(String(vVal));
+                }
+                return oSelect;
+            }
+
+            return new sap.m.Input({
+                value: (vVal !== undefined && vVal !== null) ? String(vVal) : "",
+                type: oColField.fieldTypeId === 6 ? "Number" : "Text"
+            });
+        },
+        _onSubTableAddRow: function (oTable) {
+            var aVisibleFields = oTable.data("subTableFields") || [];
+            var oSubTableLookups = oTable.data("subTableLookups") || {};
+            var self = this;
+
+            var aCells = aVisibleFields.map(function (oColField) {
+                return self._createSubTableCellControl(oColField, null, oSubTableLookups);
+            });
+
+            var oNewItem = new sap.m.ColumnListItem({ cells: aCells });
+            oNewItem.data("isNew", true);
+            oTable.addItem(oNewItem);
+        },
+        _onSubTableDeleteRows: function (oTable, sCategoryName, sHash) {
+            var aSelectedItems = oTable.getSelectedItems();
+            if (!aSelectedItems.length) {
+                MessageToast.show("Please select rows to delete");
+                return;
+            }
+            var self = this;
+            MessageBox.confirm("Delete the selected row(s)?", {
+                onClose: function (sAction) {
+                    if (sAction !== MessageBox.Action.OK) { return; }
+                    aSelectedItems.forEach(function (oItem) {
+                        var oRowData = oItem.data("rowData");
+                        var bIsNew = oItem.data("isNew");
+                        if (!bIsNew && oRowData && sCategoryName) {
+                            // Find primary key: first *_ID field that is not Component_ID
+                            var sPrimaryKey = null;
+                            Object.keys(oRowData).forEach(function (sKey) {
+                                if (!sPrimaryKey && sKey !== "Component_ID" &&
+                                    (sKey === "id" || sKey === "ID" || /[_]ID$/i.test(sKey))) {
+                                    sPrimaryKey = oRowData[sKey];
+                                }
+                            });
+                            if (sPrimaryKey !== null && sPrimaryKey !== undefined) {
+                                $.ajax({
+                                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sCategoryName) + "/" + encodeURIComponent(sPrimaryKey) + "?hash=" + encodeURIComponent(sHash),
+                                    "method": "DELETE",
+                                    "error": function () {
+                                        MessageToast.show("Error deleting row");
+                                    }
+                                });
+                            }
+                        }
+                        oTable.removeItem(oItem);
+                        oItem.destroy();
+                    });
                 }
             });
         },
@@ -1603,6 +1692,81 @@ sap.ui.define([
                     "dataType": "json",
                     "data": JSON.stringify(oPayload),
                     "success": function () {
+                        // Save any new sub-table rows added during this form session
+                        if (self._subTableControls && self._subTableControls.length) {
+                            self._subTableControls.forEach(function (oSubTable) {
+                                var sSubCatName = oSubTable.data("subTableName");
+                                var aAllItems = oSubTable.getItems();
+                                if (!sSubCatName || !aAllItems.length) { return; }
+                                var aSubVisibleFields = oSubTable.data("subTableFields") || [];
+
+                                aAllItems.forEach(function (oRowItem) {
+                                    var bIsNew = oRowItem.data("isNew") === true;
+                                    var oRowData = oRowItem.data("rowData");
+                                    var aCells = oRowItem.getCells();
+
+                                    // Build payload from current cell values
+                                    var oRowPayload = { Component_ID: sComponentId };
+                                    aCells.forEach(function (oCell, iIdx) {
+                                        var oColField = aSubVisibleFields[iIdx];
+                                        if (!oColField) { return; }
+                                        var sCellKey = oColField.fieldName || oColField.name;
+                                        var vCellValue;
+                                        if (oCell.isA("sap.m.Select")) {
+                                            vCellValue = oCell.getSelectedKey();
+                                        } else if (oCell.isA("sap.m.Input")) {
+                                            vCellValue = oCell.getValue();
+                                        }
+                                        if (vCellValue !== "" && vCellValue !== undefined && vCellValue !== null) {
+                                            oRowPayload[sCellKey] = vCellValue;
+                                        }
+                                    });
+
+                                    if (bIsNew) {
+                                        // New row – POST to /bo/{tableName}/?hash=... (trailing slash matches collection GET; Component_ID is in body)
+                                        $.ajax({
+                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sSubCatName) + "/?hash=" + encodeURIComponent(sResolvedHash),
+                                            "method": "POST",
+                                            "contentType": "application/json",
+                                            "dataType": "json",
+                                            "data": JSON.stringify(oRowPayload),
+                                            "success": function (oResponse) {
+                                                oRowItem.data("isNew", false);
+                                                if (oResponse) { oRowItem.data("rowData", oResponse); }
+                                            },
+                                            "error": function () {
+                                                MessageToast.show(self.getResourceBundle().getText("msgErrorSavingFormData"));
+                                            }
+                                        });
+                                    } else if (oRowData) {
+                                        // Existing row – find primary key (first *_ID field that is not Component_ID)
+                                        var sRowId = null;
+                                        Object.keys(oRowData).forEach(function (sKey) {
+                                            if (!sRowId && sKey !== "Component_ID" &&
+                                                (sKey === "id" || sKey === "ID" || /[_]ID$/i.test(sKey))) {
+                                                sRowId = oRowData[sKey];
+                                            }
+                                        });
+                                        if (sRowId !== null && sRowId !== undefined) {
+                                            // POST to /bo/{tableName}/{rowId} to update existing row
+                                            $.ajax({
+                                                "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sSubCatName) + "/" + encodeURIComponent(sRowId) + "?hash=" + encodeURIComponent(sResolvedHash),
+                                                "method": "POST",
+                                                "contentType": "application/json",
+                                                "dataType": "json",
+                                                "data": JSON.stringify(oRowPayload),
+                                                "success": function (oResponse) {
+                                                    if (oResponse) { oRowItem.data("rowData", oResponse); }
+                                                },
+                                                "error": function () {
+                                                    MessageToast.show(self.getResourceBundle().getText("msgErrorSavingFormData"));
+                                                }
+                                            });
+                                        }
+                                    }
+                                });
+                            });
+                        }
                         MessageBox.success(self.getResourceBundle().getText("msgFormSaveSuccess"), {
                             onClose: function () {
                                 if (self._oFormDialog) {

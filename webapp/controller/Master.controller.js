@@ -266,7 +266,7 @@ sap.ui.define([
             if (oEntry && oEntry.showDot && oEntry.color) {
                 return oEntry.color;
             }
-            return "Transparent";
+            return "transparent";
         },
 
         /**
