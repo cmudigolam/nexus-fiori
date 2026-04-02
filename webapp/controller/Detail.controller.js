@@ -1723,10 +1723,10 @@ sap.ui.define([
                                     });
 
                                     if (bIsNew) {
-                                        // New row – POST to /bo/{tableName}/?hash=... (trailing slash matches collection GET; Component_ID is in body)
+                                        // New row – PUT to /bo/{tableName}/0?hash=... (id=0 signals record creation)
                                         $.ajax({
-                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sSubCatName) + "/?hash=" + encodeURIComponent(sResolvedHash),
-                                            "method": "POST",
+                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sSubCatName) + "/0?hash=" + encodeURIComponent(sResolvedHash),
+                                            "method": "PUT",
                                             "contentType": "application/json",
                                             "dataType": "json",
                                             "data": JSON.stringify(oRowPayload),

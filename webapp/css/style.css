@@ -112,3 +112,7 @@ html .sapUiContainer-Medium .sapUxAPObjectPageSectionHeader {
 .italicButton .sapMBtnContent {
     font-style: normal;
 }
+
+.sapFDynamicPage-Std-Phone .sapFDynamicPageContent, .sapFDynamicPage-Std-Phone .sapFDynamicPageContentFitContainer {
+    padding: 1rem 1rem 0 1rem !important;
+}

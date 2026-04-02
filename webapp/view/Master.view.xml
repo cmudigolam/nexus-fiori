@@ -9,13 +9,37 @@
                 <f:heading>
                     <Title id="pageTitle" text="{i18n>lblAssetHierarchy}" />
                 </f:heading>
-                <f:actions>
-                    <!--actions-->
-                </f:actions>
             </f:DynamicPageTitle>
         </f:title>
         <f:content>
             <VBox id="mainVBox" class="assetMasterContent" height="100%">
+                <HBox justifyContent="End" alignItems="Start" class="sapUiSmallMarginBottom">
+                    <VBox class="sapUiSmallMarginEnd" width="22rem">
+                        <Label text="{i18n>lblAsset}:" labelFor="assetSelector" class="sapUiTinyMarginBottom" />
+                        <ComboBox
+                            id="assetSelector"
+                            width="100%"
+                            placeholder="{i18n>lblSelectAsset}"
+                            items="{LocalDataModel>/treeList}"
+                            selectedKey="{LocalDataModel>/selectedNode}"
+                            selectionChange="onNodeSelect">
+                            <core:Item key="{LocalDataModel>CV_ID}" text="{LocalDataModel>Name}" />
+                        </ComboBox>
+                    </VBox>
+                    <VBox width="16rem">
+                        <Label text="Traffic Light:" labelFor="trafficLightSelector" class="sapUiTinyMarginBottom" />
+                        <ComboBox
+                            id="trafficLightSelector"
+                            width="100%"
+                            placeholder="All"
+                            showSecondaryValues="false"
+                            items="{LocalDataModel>/trafficLightList}"
+                            selectedKey="{LocalDataModel>/selectedTrafficLight}"
+                            selectionChange="onTrafficLightSelect">
+                            <core:Item key="{LocalDataModel>CO_ID}" text="{LocalDataModel>Name}" />
+                        </ComboBox>
+                    </VBox>
+                </HBox>
                 <tree:TreeTable
                     id="TreeTableBasic"
                     class="assetTreeTable"
@@ -30,46 +54,6 @@
                     toggleOpenState="onToggleOpenState"
                     enableSelectAll="false"
                     ariaLabelledBy="pageTitle">
-                    <tree:extension>
-                        <OverflowToolbar style="Clear" class="assetMasterToolbar">
-                            <ToolbarSpacer />
-                            <Label text="{i18n>lblAsset}" labelFor="assetSelector" visible="false">
-                                <layoutData>
-                                    <OverflowToolbarLayoutData priority="Low" />
-                                </layoutData>
-                            </Label>
-                            <ComboBox
-                                id="assetSelector"
-                                width="100%"
-                                placeholder="{i18n>lblSelectAsset}"
-                                items="{LocalDataModel>/treeList}"
-                                selectedKey="{LocalDataModel>/selectedNode}"
-                                selectionChange="onNodeSelect">
-                                <layoutData>
-                                    <OverflowToolbarLayoutData priority="NeverOverflow" minWidth="10rem" maxWidth="22rem" shrinkable="true" />
-                                </layoutData>
-                                <core:Item key="{LocalDataModel>CV_ID}" text="{LocalDataModel>Name}" />
-                            </ComboBox>
-                            <Label text="Traffic Light" visible="false">
-                                <layoutData>
-                                    <OverflowToolbarLayoutData priority="Low" />
-                                </layoutData>
-                            </Label>
-                            <ComboBox
-                                id="trafficLightSelector"
-                                width="100%"
-                                placeholder="All"
-                                showSecondaryValues="false"
-                                items="{LocalDataModel>/trafficLightList}"
-                                selectedKey="{LocalDataModel>/selectedTrafficLight}"
-                                selectionChange="onTrafficLightSelect">
-                                <layoutData>
-                                    <OverflowToolbarLayoutData priority="NeverOverflow" minWidth="8rem" maxWidth="16rem" shrinkable="true" />
-                                </layoutData>
-                                <core:Item key="{LocalDataModel>CO_ID}" text="{LocalDataModel>Name}" />
-                            </ComboBox>
-                        </OverflowToolbar>
-                    </tree:extension>
                 <tree:columns>
                     <tree:Column id="colCategories" width="55%">
                         <Label id="lblCategories" text="{i18n>lblAssetName}"/>
