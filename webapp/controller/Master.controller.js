@@ -282,8 +282,9 @@ sap.ui.define([
          */
         formatTrafficDotTooltip: function (vComponentId, iVersion) {
             var oEntry = this._resolveTrafficEntry(vComponentId);
-            if (oEntry && oEntry.showDot && oEntry.legendName) {
-                return "Rolled up risk: " + oEntry.legendName;
+            if (oEntry && oEntry.showDot) {
+                var sLegend = oEntry.legendName ? oEntry.legendName : "";
+                return "Rolled up Risk (Colour Only): " + sLegend;
             }
             return "";
         },

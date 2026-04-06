@@ -407,20 +407,160 @@ sap.ui.define([
             self._pendingLookupCount = 0;
             self._formDataTableName = sTableName;
             self._subTableControls = [];
-            self.buildFormContent(oFormData, oCategorizedFields);
 
-            // Set busy indicator to show immediately when dialog opens
-            self._oFormDialog.setBusyIndicatorDelay(0);
-            self._oFormDialog.setBusy(true);
+            var fnBuildAndOpen = function () {
+                self.buildFormContent(oFormData, oCategorizedFields);
+                // Set busy indicator to show immediately when dialog opens
+                self._oFormDialog.setBusyIndicatorDelay(0);
+                self._oFormDialog.setBusy(true);
+                self._oFormDialog.open();
+                // After form is opened, check if there are pending lookups
+                // If no lookups, load form data immediately
+                // Otherwise, it will be called after all lookups complete
+                if (self._pendingLookupCount === 0) {
+                    self._loadFormData(sTableName);
+                }
+            };
 
-            self._oFormDialog.open();
-
-            // After form is opened, check if there are pending lookups
-            // If no lookups, load form data immediately
-            // Otherwise, it will be called after all lookups complete
-            if (self._pendingLookupCount === 0) {
-                self._loadFormData(sTableName);
+            var sHash = self.getLocalDataModel().getProperty("/HashToken");
+            if (sHash) {
+                self._expandForeignTableFields(oFormData, oCategorizedFields, sHash, fnBuildAndOpen);
+            } else {
+                self.getoHashToken().done(function (oResult) {
+                    var sFetchedHash = oResult && oResult.hash;
+                    self._expandForeignTableFields(oFormData, oCategorizedFields, sFetchedHash || "", fnBuildAndOpen);
+                }).fail(function () {
+                    fnBuildAndOpen();
+                });
             }
+        },
+        _expandForeignTableFields: function (oFormData, oCategorizedFields, sResolvedHash, fnCallback) {
+            var self = this;
+            var aFields = Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [];
+
+            // Find all fields that are foreign-table references
+            var aForeignFields = aFields.filter(function (oField) {
+                return oField.fieldTypeId === 19 && oField.foreignTableId;
+            });
+
+            if (aForeignFields.length === 0) {
+                fnCallback();
+                return;
+            }
+
+            var iRemaining = aForeignFields.length;
+
+            aForeignFields.forEach(function (oForeignField) {
+                var sForeignTableId = oForeignField.foreignTableId;
+                var sParentCategory = oForeignField.category ||
+                    (oFormData.categories && oFormData.categories[0] && oFormData.categories[0].name) || "General";
+
+                $.ajax({
+                    "url": self.isRunninglocally() + "/boByKey/" + encodeURIComponent(sForeignTableId),
+                    "method": "GET",
+                    "dataType": "json",
+                    "data": { "hash": sResolvedHash },
+                    "success": function (response) {
+                        var aResponseFields = Array.isArray(response && response.fields) ? response.fields : [];
+
+                        // businessObjectName and filter field are on oForeignField.nestedField
+                        // (from the parent /bo/ response, e.g. "Material" field carries:
+                        //   nestedField.businessObjectName = "LT_Material_Selection__Piping_"
+                        //   nestedField.fieldName          = "Material_Selection__Piping__ID")
+                        var oNestedField = oForeignField.nestedField;
+                        var sBusinessObjectName = oNestedField && oNestedField.businessObjectName;
+                        var sFilterField = oNestedField && oNestedField.fieldName;
+
+                        if (sBusinessObjectName && sFilterField) {
+                            var sParentTableName = self._formDataTableName;
+                            var sParentFieldName = oForeignField.fieldName || oForeignField.name;
+                            var sCompId = self.getLocalDataModel().getProperty("/sCompoonentID");
+
+                            if (sParentTableName && sCompId) {
+                                // Step 1: fetch the parent record to read the link value
+                                // e.g. /bo/CIG_Piping_Data/{compId} → record["Material"] → 8
+                                $.ajax({
+                                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sParentTableName) + "/" + encodeURIComponent(sCompId),
+                                    "method": "GET",
+                                    "dataType": "json",
+                                    "data": { "hash": sResolvedHash },
+                                    "success": function (parentResponse) {
+                                        var oParentRecord = parentResponse;
+                                        if (Array.isArray(parentResponse.rows) && parentResponse.rows.length > 0) {
+                                            oParentRecord = parentResponse.rows[0];
+                                        } else if (Array.isArray(parentResponse) && parentResponse.length > 0) {
+                                            oParentRecord = parentResponse[0];
+                                        }
+
+                                        var vLinkValue = oParentRecord && oParentRecord[sParentFieldName];
+                                        if (vLinkValue === undefined || vLinkValue === null) { return; }
+
+                                        // Step 2: call /bo/{businessObjectName} filtered by the link value
+                                        // e.g. /bo/LT_Material_Selection__Piping_
+                                        //   X-NEXUS-Filter: {"where":[{"field":"Material_Selection__Piping__ID","items":[8],"method":"in"}]}
+                                        $.ajax({
+                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sBusinessObjectName)+"/",
+                                            "method": "GET",
+                                            "dataType": "json",
+                                            "headers": {
+                                                "X-NEXUS-Filter": JSON.stringify({
+                                                    "where": [{ "field": sFilterField, "items": [vLinkValue], "method": "in" }]
+                                                })
+                                            },
+                                            "data": { "hash": sResolvedHash },
+                                            "success": function (linkedResponse) {
+                                                oForeignField._linkedData = linkedResponse;
+                                                // Populate the expanded UI controls with the linked row's values
+                                                self._populateLinkedFields(linkedResponse);
+                                            },
+                                            "error": function () { /* silent – linked data unavailable */ }
+                                        });
+                                    }
+                                });
+                            }
+                        }
+
+                        // Only include fields where gridVisible is explicitly true
+                        var aVisibleFields = aResponseFields.filter(function (oColField) {
+                            return oColField.gridVisible === true;
+                        });
+                        // Stamp each expanded field with the parent's category
+                        aVisibleFields.forEach(function (oExpandedField) {
+                            oExpandedField.category = sParentCategory;
+                        });
+
+                        // Replace the foreign-reference field with the expanded fields in oFormData.fields
+                        var iIdx = oFormData.fields.indexOf(oForeignField);
+                        if (iIdx !== -1) {
+                            oFormData.fields.splice.apply(oFormData.fields, [iIdx, 1].concat(aVisibleFields));
+                        }
+                        // Replace in oCategorizedFields
+                        if (oCategorizedFields[sParentCategory]) {
+                            var iCatIdx = oCategorizedFields[sParentCategory].indexOf(oForeignField);
+                            if (iCatIdx !== -1) {
+                                oCategorizedFields[sParentCategory].splice.apply(
+                                    oCategorizedFields[sParentCategory],
+                                    [iCatIdx, 1].concat(aVisibleFields)
+                                );
+                            }
+                        }
+
+                        iRemaining--;
+                        if (iRemaining === 0) { fnCallback(); }
+                    },
+                    "error": function () {
+                        // On error, remove the unresolvable foreign field and continue
+                        var iIdx = oFormData.fields.indexOf(oForeignField);
+                        if (iIdx !== -1) { oFormData.fields.splice(iIdx, 1); }
+                        if (oCategorizedFields[sParentCategory]) {
+                            var iCatIdx = oCategorizedFields[sParentCategory].indexOf(oForeignField);
+                            if (iCatIdx !== -1) { oCategorizedFields[sParentCategory].splice(iCatIdx, 1); }
+                        }
+                        iRemaining--;
+                        if (iRemaining === 0) { fnCallback(); }
+                    }
+                });
+            });
         },
         buildFormContent: function (oFormData, oCategorizedFields) {
             var oTabBar = this._oFormDialog.getContent()[0];
@@ -636,6 +776,10 @@ sap.ui.define([
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
                     });
+                /*case 1: // Global table loopups
+                    var oSelect = new sap.m.Select({
+                    });
+                    return oSelect;*/
                 default: // Text field
                     return new sap.m.Input({
                         type: "Text",
@@ -868,13 +1012,18 @@ sap.ui.define([
                             var sCellField = oColField.fieldName || oColField.name;
                             var vVal = oRow[sCellField];
                             // Resolve nested display value (e.g. lookup object)
-                            if (vVal !== null && vVal !== undefined && typeof vVal === "object" && oColField.nestedField) {
-                                if (oColField.lookupListId) {
-                                    // For lookup fields use Comments as the display/matching value
-                                    vVal = vVal["Comments"] || vVal[oColField.nestedField.fieldName || oColField.nestedField.name];
+                            if (vVal !== null && vVal !== undefined && typeof vVal === "object") {
+                                if (oColField.nestedField) {
+                                    if (oColField.lookupListId) {
+                                        // For lookup fields use Comments as the display/matching value
+                                        vVal = vVal["Comments"] || vVal[oColField.nestedField.fieldName || oColField.nestedField.name];
+                                    } else {
+                                        var sNestedKey = oColField.nestedField.fieldName || oColField.nestedField.name;
+                                        vVal = sNestedKey ? vVal[sNestedKey] : vVal;
+                                    }
                                 } else {
-                                    var sNestedKey = oColField.nestedField.fieldName || oColField.nestedField.name;
-                                    vVal = sNestedKey ? vVal[sNestedKey] : vVal;
+                                    // No nestedField defined and value is an object – display empty
+                                    vVal = null;
                                 }
                             }
                             return self._createSubTableCellControl(oColField, vVal, oSubTableLookups || {});
@@ -907,6 +1056,20 @@ sap.ui.define([
                     oSelect.setSelectedKey(String(vVal));
                 }
                 return oSelect;
+            }
+
+            var bIsDateField = oColField.fieldTypeId === 9 ||
+                (typeof vVal === "string" && /^\d{4}-\d{2}-\d{2}/.test(vVal));
+
+            if (bIsDateField) {
+                var oDatePicker = new sap.m.DatePicker({ displayFormat: "dd MMM yyyy" });
+                if (vVal !== undefined && vVal !== null && vVal !== "") {
+                    var oParsedDate = new Date(vVal);
+                    if (!isNaN(oParsedDate.getTime())) {
+                        oDatePicker.setDateValue(oParsedDate);
+                    }
+                }
+                return oDatePicker;
             }
 
             return new sap.m.Input({
@@ -1368,6 +1531,18 @@ sap.ui.define([
             var b = (v >>> 16) & 0xFF;
             return "#" + [r, g, b].map(function (n) { return n.toString(16).padStart(2, "0"); }).join("").toUpperCase();
         },
+        _populateLinkedFields: function (oLinkedResponse) {
+            if (!oLinkedResponse || !this._fieldControlMap) { return; }
+            var oRow = null;
+            if (Array.isArray(oLinkedResponse.rows) && oLinkedResponse.rows.length > 0) {
+                oRow = oLinkedResponse.rows[0];
+            } else if (Array.isArray(oLinkedResponse) && oLinkedResponse.length > 0) {
+                oRow = oLinkedResponse[0];
+            }
+            if (!oRow) { return; }
+            // Reuse the same field-population logic as _populateFormFields
+            this._populateFormFields(oRow);
+        },
         _populateFormFields: function (oData) {
             if (!oData || !this._fieldControlMap) {
                 return;
@@ -1714,6 +1889,14 @@ sap.ui.define([
                                         var vCellValue;
                                         if (oCell.isA("sap.m.Select")) {
                                             vCellValue = oCell.getSelectedKey();
+                                        } else if (oCell.isA("sap.m.DatePicker")) {
+                                            var oCellDate = oCell.getDateValue();
+                                            if (oCellDate) {
+                                                var sCellYear = oCellDate.getFullYear();
+                                                var sCellMonth = String(oCellDate.getMonth() + 1).padStart(2, "0");
+                                                var sCellDay = String(oCellDate.getDate()).padStart(2, "0");
+                                                vCellValue = sCellYear + "-" + sCellMonth + "-" + sCellDay;
+                                            }
                                         } else if (oCell.isA("sap.m.Input")) {
                                             vCellValue = oCell.getValue();
                                         }
