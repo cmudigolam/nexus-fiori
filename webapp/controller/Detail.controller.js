@@ -400,6 +400,9 @@ sap.ui.define([
 
             // Build form content dynamically
             self._fieldControlMap = {};
+            self._fieldBusinessObjectMap = {};
+            self._linkedDataByBO = {};
+            self._cascadeFieldOrder = {};
             self._colourInputMap = {};
             self._colourValueMap = {};
             self._categoryTabMap = {};
@@ -495,23 +498,25 @@ sap.ui.define([
                                         var vLinkValue = oParentRecord && oParentRecord[sParentFieldName];
                                         if (vLinkValue === undefined || vLinkValue === null) { return; }
 
-                                        // Step 2: call /bo/{businessObjectName} filtered by the link value
+                                        // Step 2: call /bo/{businessObjectName} to load all data (no filter)
                                         // e.g. /bo/LT_Material_Selection__Piping_
-                                        //   X-NEXUS-Filter: {"where":[{"field":"Material_Selection__Piping__ID","items":[8],"method":"in"}]}
                                         $.ajax({
                                             "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sBusinessObjectName)+"/",
                                             "method": "GET",
                                             "dataType": "json",
-                                            "headers": {
-                                                "X-NEXUS-Filter": JSON.stringify({
-                                                    "where": [{ "field": sFilterField, "items": [vLinkValue], "method": "in" }]
-                                                })
-                                            },
-                                            "data": { "hash": sResolvedHash },
+                                            "data": { "hash": sResolvedHash, "pagesize": 1000 },
                                             "success": function (linkedResponse) {
                                                 oForeignField._linkedData = linkedResponse;
-                                                // Populate the expanded UI controls with the linked row's values
-                                                self._populateLinkedFields(linkedResponse);
+                                                // Store full dataset per BO for cascade filtering
+                                                var aAllRows = [];
+                                                if (Array.isArray(linkedResponse.rows) && linkedResponse.rows.length > 0) {
+                                                    aAllRows = linkedResponse.rows;
+                                                } else if (Array.isArray(linkedResponse) && linkedResponse.length > 0) {
+                                                    aAllRows = linkedResponse;
+                                                }
+                                                self._linkedDataByBO[sBusinessObjectName] = aAllRows;
+                                                // Populate the expanded UI controls scoped to this business object only
+                                                self._populateLinkedFields(linkedResponse, sBusinessObjectName);
                                             },
                                             "error": function () { /* silent – linked data unavailable */ }
                                         });
@@ -524,9 +529,12 @@ sap.ui.define([
                         var aVisibleFields = aResponseFields.filter(function (oColField) {
                             return oColField.gridVisible === true;
                         });
-                        // Stamp each expanded field with the parent's category
+                        // Stamp each expanded field with the parent's category and business object name
                         aVisibleFields.forEach(function (oExpandedField) {
                             oExpandedField.category = sParentCategory;
+                            if (sBusinessObjectName) {
+                                oExpandedField._businessObjectName = sBusinessObjectName;
+                            }
                         });
 
                         // Replace the foreign-reference field with the expanded fields in oFormData.fields
@@ -588,7 +596,38 @@ sap.ui.define([
                         return aOrder - bOrder;
                     });
 
+                    // Group fields: BO fields together, non-BO fields separate
+                    var aBoGroups = [];
+                    var oBoPosMap = {};
+                    var aNonBoFields = [];
                     aSortedFields.forEach(function (oField) {
+                        var sBo = oField._businessObjectName;
+                        if (sBo) {
+                            if (oBoPosMap[sBo] === undefined) {
+                                oBoPosMap[sBo] = aBoGroups.length;
+                                aBoGroups.push({ bo: sBo, fields: [] });
+                            }
+                            aBoGroups[oBoPosMap[sBo]].fields.push(oField);
+                        } else {
+                            aNonBoFields.push(oField);
+                        }
+                    });
+                    // Rebuild sorted fields: non-BO fields first, then each BO group
+                    aSortedFields = aNonBoFields;
+                    aBoGroups.forEach(function (oGroup) {
+                        // Insert a separator marker for BO group
+                        aSortedFields.push({ _boGroupTitle: oGroup.bo, _isGroupSeparator: true });
+                        aSortedFields = aSortedFields.concat(oGroup.fields);
+                    });
+
+                    aSortedFields.forEach(function (oField) {
+                        // Render BO group separator title
+                        if (oField._isGroupSeparator) {
+                            var oTitle = new sap.ui.core.Title({ text: oField._boGroupTitle.replace(/_/g, " ").replace(/^LT\s+/i, "") });
+                            aFormContent.push(oTitle);
+                            return;
+                        }
+
                         // Determine visibility based on formVisible property from API metadata
                         var bVisible = oField.formVisible !== false;
 
@@ -641,6 +680,9 @@ sap.ui.define([
                         var sFieldKey = oField.fieldName || oField.name;
                         if (sFieldKey) {
                             self._fieldControlMap[sFieldKey] = oInput;
+                            if (oField._businessObjectName) {
+                                self._fieldBusinessObjectMap[sFieldKey] = oField._businessObjectName;
+                            }
                             if (/colour/i.test(oField.name || oField.fieldName || "")) {
                                 self._colourInputMap[sFieldKey] = oInput;
                             }
@@ -776,10 +818,11 @@ sap.ui.define([
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
                     });
-                /*case 1: // Global table loopups
+                case 1: // Global table lookups
                     var oSelect = new sap.m.Select({
+                        width: "100%"
                     });
-                    return oSelect;*/
+                    return oSelect;
                 default: // Text field
                     return new sap.m.Input({
                         type: "Text",
@@ -1531,18 +1574,249 @@ sap.ui.define([
             var b = (v >>> 16) & 0xFF;
             return "#" + [r, g, b].map(function (n) { return n.toString(16).padStart(2, "0"); }).join("").toUpperCase();
         },
-        _populateLinkedFields: function (oLinkedResponse) {
+        _populateLinkedFields: function (oLinkedResponse, sBusinessObjectName) {
             if (!oLinkedResponse || !this._fieldControlMap) { return; }
-            var oRow = null;
-            if (Array.isArray(oLinkedResponse.rows) && oLinkedResponse.rows.length > 0) {
-                oRow = oLinkedResponse.rows[0];
-            } else if (Array.isArray(oLinkedResponse) && oLinkedResponse.length > 0) {
-                oRow = oLinkedResponse[0];
+            var aRows = this._linkedDataByBO[sBusinessObjectName] || [];
+            if (aRows.length === 0) { return; }
+
+            var self = this;
+            var oBoMap = this._fieldBusinessObjectMap || {};
+
+            // Collect ordered Select field keys belonging to this BO
+            var aSelectFields = [];
+            var aNonSelectFields = [];
+            Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
+                if (oBoMap[sFieldKey] !== sBusinessObjectName) { return; }
+                var oControl = self._fieldControlMap[sFieldKey];
+                if (oControl && oControl.isA("sap.m.Select")) {
+                    aSelectFields.push(sFieldKey);
+                } else {
+                    aNonSelectFields.push(sFieldKey);
+                }
+            });
+
+            // Build cascade order: detect parent→child chain from data
+            // The field whose unique count is smallest over all rows is the top-level parent
+            // Order: Asset_Type → Generic_Material → Spec_and_Grade → Product_Form → Condition
+            //         Nps → Schedule
+            // We detect chains by checking: for each pair (A,B), if every unique B maps to exactly one A, then A is parent of B
+            var aCascadeOrder = this._buildCascadeOrder(aSelectFields, aRows);
+            this._cascadeFieldOrder[sBusinessObjectName] = aCascadeOrder;
+
+            // Populate the first field (root) with all unique values
+            if (aCascadeOrder.length > 0) {
+                var sRootField = aCascadeOrder[0];
+                this._populateSelectUnique(sRootField, aRows);
             }
-            if (!oRow) { return; }
-            // Reuse the same field-population logic as _populateFormFields
-            this._populateFormFields(oRow);
+
+            // Set selected values from the first row for root, then cascade down
+            var oFirstRow = aRows[0];
+            for (var i = 0; i < aCascadeOrder.length; i++) {
+                var sField = aCascadeOrder[i];
+                var oControl = this._fieldControlMap[sField];
+                var vValue = oFirstRow[sField];
+                if (oControl && vValue !== undefined && vValue !== null) {
+                    // For non-root fields, filter rows by all ancestor selections first
+                    if (i > 0) {
+                        var aFiltered = this._getFilteredRows(sBusinessObjectName, aCascadeOrder, i);
+                        this._populateSelectUnique(sField, aFiltered);
+                    }
+                    var sValueStr = String(vValue).trim();
+                    this._setSelectValue(oControl, sValueStr);
+                }
+            }
+
+            // Populate non-Select fields from first row
+            aNonSelectFields.forEach(function (sFieldKey) {
+                var oControl = self._fieldControlMap[sFieldKey];
+                var vValue = oFirstRow[sFieldKey];
+                if (vValue === undefined || vValue === null) { return; }
+                if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
+                    oControl.setValue(String(vValue));
+                } else if (oControl.isA("sap.m.DatePicker")) {
+                    var oDate = new Date(vValue);
+                    if (!isNaN(oDate.getTime())) { oControl.setDateValue(oDate); } else { oControl.setValue(String(vValue)); }
+                } else if (oControl.isA("sap.m.CheckBox")) {
+                    oControl.setSelected(!!vValue);
+                }
+            });
+
+            // Attach cascade change handlers to each Select in the chain
+            for (var j = 0; j < aCascadeOrder.length; j++) {
+                (function (iIdx) {
+                    var sField = aCascadeOrder[iIdx];
+                    var oCtrl = self._fieldControlMap[sField];
+                    if (oCtrl && oCtrl.isA("sap.m.Select")) {
+                        oCtrl.attachChange(function () {
+                            self._onCascadeSelectChange(sBusinessObjectName, aCascadeOrder, iIdx);
+                        });
+                    }
+                })(j);
+            }
         },
+
+        /**
+         * Build cascade order by detecting parent→child relationships from data.
+         * A is parent of B if the number of unique A values < unique B values
+         * and each unique B value maps to exactly one A value.
+         * Separate independent chains (e.g. Nps→Schedule vs Asset_Type→...→Condition).
+         */
+        _buildCascadeOrder: function (aSelectFields, aRows) {
+            if (aSelectFields.length <= 1) { return aSelectFields.slice(); }
+
+            // Count unique values per field
+            var oUniqueCounts = {};
+            var oFieldValues = {};
+            aSelectFields.forEach(function (sField) {
+                var oSeen = {};
+                var iCount = 0;
+                aRows.forEach(function (oRow) {
+                    var v = oRow[sField];
+                    if (v !== undefined && v !== null && v !== "") {
+                        var s = String(v);
+                        if (!oSeen[s]) { oSeen[s] = true; iCount++; }
+                    }
+                });
+                oUniqueCounts[sField] = iCount;
+                oFieldValues[sField] = oSeen;
+            });
+
+            // Detect parent relationships: for each pair check if B→A is many-to-one
+            var oParentOf = {}; // oParentOf[child] = parent
+            aSelectFields.forEach(function (sB) {
+                aSelectFields.forEach(function (sA) {
+                    if (sA === sB) { return; }
+                    if (oUniqueCounts[sA] >= oUniqueCounts[sB]) { return; }
+                    // Check if every value of sB maps to exactly one sA
+                    var oBtoA = {};
+                    var bValid = true;
+                    for (var r = 0; r < aRows.length && bValid; r++) {
+                        var vB = aRows[r][sB];
+                        var vA = aRows[r][sA];
+                        if (vB === undefined || vB === null || vB === "") { continue; }
+                        if (vA === undefined || vA === null || vA === "") { continue; }
+                        var sB_val = String(vB);
+                        var sA_val = String(vA);
+                        if (oBtoA[sB_val] === undefined) {
+                            oBtoA[sB_val] = sA_val;
+                        } else if (oBtoA[sB_val] !== sA_val) {
+                            bValid = false;
+                        }
+                    }
+                    if (bValid && (!oParentOf[sB] || oUniqueCounts[sA] < oUniqueCounts[oParentOf[sB]])) {
+                        oParentOf[sB] = sA;
+                    }
+                });
+            });
+
+            // Build chains from roots
+            var aRoots = aSelectFields.filter(function (s) { return !oParentOf[s]; });
+            var oChildrenOf = {};
+            Object.keys(oParentOf).forEach(function (sChild) {
+                var sParent = oParentOf[sChild];
+                if (!oChildrenOf[sParent]) { oChildrenOf[sParent] = []; }
+                oChildrenOf[sParent].push(sChild);
+            });
+
+            // DFS to build ordered chain
+            var aResult = [];
+            function walkChain(sNode) {
+                aResult.push(sNode);
+                var aKids = oChildrenOf[sNode] || [];
+                // Sort children by unique count ascending
+                aKids.sort(function (a, b) { return oUniqueCounts[a] - oUniqueCounts[b]; });
+                aKids.forEach(walkChain);
+            }
+            // Sort roots by unique count ascending
+            aRoots.sort(function (a, b) { return oUniqueCounts[a] - oUniqueCounts[b]; });
+            aRoots.forEach(walkChain);
+
+            return aResult;
+        },
+
+        /**
+         * Populate a Select control with unique values from given rows.
+         */
+        _populateSelectUnique: function (sFieldKey, aRows) {
+            var oControl = this._fieldControlMap[sFieldKey];
+            if (!oControl || !oControl.isA("sap.m.Select")) { return; }
+            var aUniqueValues = [];
+            var oSeen = {};
+            aRows.forEach(function (oRow) {
+                var vVal = oRow[sFieldKey];
+                if (vVal !== undefined && vVal !== null && vVal !== "") {
+                    var sVal = String(vVal);
+                    if (!oSeen[sVal]) {
+                        oSeen[sVal] = true;
+                        aUniqueValues.push(sVal);
+                    }
+                }
+            });
+            oControl.removeAllItems();
+            aUniqueValues.forEach(function (sVal) {
+                oControl.addItem(new Item({ key: sVal, text: sVal }));
+            });
+        },
+
+        /**
+         * Set a Select control's selected value by key or text match.
+         */
+        _setSelectValue: function (oControl, sValue) {
+            var aItems = oControl.getItems();
+            for (var i = 0; i < aItems.length; i++) {
+                if (aItems[i].getKey() === sValue || aItems[i].getText() === sValue) {
+                    oControl.setSelectedItem(aItems[i]);
+                    return;
+                }
+            }
+            if (aItems.length > 0) {
+                oControl.setSelectedItem(aItems[0]);
+            }
+        },
+
+        /**
+         * Get rows filtered by all ancestor Select values up to (but not including) iFieldIdx.
+         */
+        _getFilteredRows: function (sBusinessObjectName, aCascadeOrder, iFieldIdx) {
+            var aAllRows = this._linkedDataByBO[sBusinessObjectName] || [];
+            var aFiltered = aAllRows;
+            for (var i = 0; i < iFieldIdx; i++) {
+                var sAncestor = aCascadeOrder[i];
+                var oAncestorCtrl = this._fieldControlMap[sAncestor];
+                if (oAncestorCtrl && oAncestorCtrl.isA("sap.m.Select")) {
+                    var sSelectedKey = oAncestorCtrl.getSelectedKey();
+                    if (sSelectedKey) {
+                        aFiltered = aFiltered.filter(function (oRow) {
+                            return String(oRow[sAncestor] || "") === sSelectedKey;
+                        });
+                    }
+                }
+            }
+            return aFiltered;
+        },
+
+        /**
+         * Handle cascade Select change: clear and repopulate all child Selects.
+         */
+        _onCascadeSelectChange: function (sBusinessObjectName, aCascadeOrder, iChangedIdx) {
+            // For each child field after the changed one, repopulate with filtered unique values
+            for (var i = iChangedIdx + 1; i < aCascadeOrder.length; i++) {
+                var sChildField = aCascadeOrder[i];
+                var oChildCtrl = this._fieldControlMap[sChildField];
+                if (!oChildCtrl || !oChildCtrl.isA("sap.m.Select")) { continue; }
+
+                // Filter rows by all ancestors up to this child
+                var aFiltered = this._getFilteredRows(sBusinessObjectName, aCascadeOrder, i);
+                this._populateSelectUnique(sChildField, aFiltered);
+
+                // Auto-select first item
+                var aItems = oChildCtrl.getItems();
+                if (aItems.length > 0) {
+                    oChildCtrl.setSelectedItem(aItems[0]);
+                }
+            }
+        },
+
         _populateFormFields: function (oData) {
             if (!oData || !this._fieldControlMap) {
                 return;
