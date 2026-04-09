@@ -12,8 +12,13 @@ sap.ui.define([
     "sap/m/VBox",
     "sap/ui/layout/form/SimpleForm",
     "sap/ui/core/Item",
-    "sap/m/MessageBox"
-], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, Select, VBox, SimpleForm, Item, MessageBox) => {
+    "sap/m/MessageBox",
+    "sap/m/Link",
+    "sap/m/Popover",
+    "sap/m/List",
+    "sap/m/StandardListItem",
+    "sap/m/DisplayListItem"
+], (BaseController, MessageToast, Fragment, JSONModel, Label, Text, Input, DatePicker, CheckBox, Select, VBox, SimpleForm, Item, MessageBox, Link, Popover, List, StandardListItem, DisplayListItem) => {
     "use strict";
 
     return BaseController.extend("com.nexus.asset.controller.Detail", {
@@ -50,8 +55,134 @@ sap.ui.define([
                 }
             }.bind(this);
             oLocalDataModel.attachPropertyChange(this._fnPropertyChangeListener);
+
+            // Load Unit and Unit_Type reference data on app start
+            this._aUnitData = [];
+            this._aUnitTypeData = [];
+            this._oUserPreferredUnitByType = {}; // Map of UT_ID -> preferred Unit_ID from Unit_Item
+            this._aRawUnitItems = []; // Raw Unit_Item records (Unit_Item has no UT_ID, needs cross-ref with Unit)
+            this._bUserPreferredMapBuilt = false;
+            this._loadUnitReferenceData();
         },
-        
+
+        _loadUnitReferenceData: function () {
+            var self = this;
+            var oLocalDataModel = this.getLocalDataModel();
+            var sHash = oLocalDataModel.getProperty("/HashToken");
+
+            var fnFetch = function (sResolvedHash) {
+                // Load Unit data
+                $.ajax({
+                    "url": self.isRunninglocally() + "/bo/Unit/",
+                    "method": "GET",
+                    "dataType": "json",
+                    "data": { "hash": sResolvedHash, "pageSize": 1000 },
+                    "success": function (response) {
+                        self._aUnitData = Array.isArray(response && response.rows) ? response.rows
+                            : (Array.isArray(response) ? response : []);
+                    },
+                    "error": function () {
+                        console.warn("Failed to load Unit data");
+                    }
+                });
+
+                // Load Unit_Type data
+                $.ajax({
+                    "url": self.isRunninglocally() + "/bo/Unit_Type/",
+                    "method": "GET",
+                    "dataType": "json",
+                    "data": { "hash": sResolvedHash, "pageSize": 1000 },
+                    "success": function (response) {
+                        self._aUnitTypeData = Array.isArray(response && response.rows) ? response.rows
+                            : (Array.isArray(response) ? response : []);
+                    },
+                    "error": function () {
+                        console.warn("Failed to load Unit_Type data");
+                    }
+                });
+            };
+
+            if (sHash) {
+                fnFetch(sHash);
+                // Need login id for user unit preferences
+                self.getoHashToken().done(function (oResult) {
+                    if (oResult && oResult.id) {
+                        self._loadUserUnitPreferences(oResult.id, sHash);
+                    }
+                });
+            } else {
+                this.getoHashToken().done(function (oResult) {
+                    var sFetchedHash = oResult && oResult.hash;
+                    if (sFetchedHash) { fnFetch(sFetchedHash); }
+                    // Load user unit preferences with the login id
+                    if (oResult && oResult.id && sFetchedHash) {
+                        self._loadUserUnitPreferences(oResult.id, sFetchedHash);
+                    }
+                });
+            }
+        },
+
+        /**
+         * After successful login, fetch Personnel record by SU_ID to get UG_ID,
+         * then fetch Unit_Item preferences by UG_ID if available.
+         */
+        _loadUserUnitPreferences: function (iUserId, sHash) {
+            var self = this;
+
+            $.ajax({
+                "url": self.isRunninglocally() + "/bo/Personnel/",
+                "method": "GET",
+                "dataType": "json",
+                "headers": {
+                    "X-NEXUS-Filter": JSON.stringify({
+                        "where": [{ "field": "SU_ID", "value": iUserId }]
+                    })
+                },
+                "data": { "hash": sHash },
+                "success": function (response) {
+                    var aRows = Array.isArray(response && response.rows) ? response.rows
+                        : (Array.isArray(response) ? response : []);
+
+                    if (aRows.length === 0) { return; }
+
+                    var oPersonnel = aRows[0];
+                    var iUgId = oPersonnel.UG_ID;
+                    if (!iUgId) { return; }
+
+                    self._loadUnitItemsByGroup(iUgId, sHash);
+                },
+                "error": function () { /* silent - continue without preferences */ }
+            });
+        },
+
+        /**
+         * Fetch Unit_Item records for the user's Unit Group.
+         * Unit_Item has Unit_ID but no UT_ID — must cross-ref with /bo/Unit/ data.
+         */
+        _loadUnitItemsByGroup: function (iUgId, sHash) {
+            var self = this;
+
+            $.ajax({
+                "url": self.isRunninglocally() + "/bo/Unit_Item/",
+                "method": "GET",
+                "dataType": "json",
+                "headers": {
+                    "X-NEXUS-Filter": JSON.stringify({
+                        "where": [{ "field": "UG_ID", "method": "eq", "value": iUgId }]
+                    })
+                },
+                "data": { "hash": sHash, "pageSize": 1000 },
+                "success": function (response) {
+                    var aItems = Array.isArray(response && response.rows) ? response.rows
+                        : (Array.isArray(response) ? response : []);
+
+                    self._aRawUnitItems = aItems;
+                    self._bUserPreferredMapBuilt = false;
+                },
+                "error": function () { /* silent - continue without preferences */ }
+            });
+        },
+
         /**
          * Build index map of Full_Location -> node for O(1) lookups
          * @returns {Object} Object with Full_Location as key, node as value
@@ -405,6 +536,8 @@ sap.ui.define([
             self._cascadeFieldOrder = {};
             self._colourInputMap = {};
             self._colourValueMap = {};
+            self._unitLinkMap = {};
+            self._unitFieldInfo = {};
             self._categoryTabMap = {};
             self._pendingComboBoxValues = {};
             self._pendingLookupCount = 0;
@@ -515,6 +648,12 @@ sap.ui.define([
                                                     aAllRows = linkedResponse;
                                                 }
                                                 self._linkedDataByBO[sBusinessObjectName] = aAllRows;
+                                                // Store match info so _populateLinkedFields can find the correct row
+                                                self._linkedFieldMatchInfo = self._linkedFieldMatchInfo || {};
+                                                self._linkedFieldMatchInfo[sBusinessObjectName] = {
+                                                    filterField: sFilterField,
+                                                    linkValue: vLinkValue
+                                                };
                                                 // Populate the expanded UI controls scoped to this business object only
                                                 self._populateLinkedFields(linkedResponse, sBusinessObjectName);
                                             },
@@ -530,8 +669,11 @@ sap.ui.define([
                             return oColField.gridVisible === true;
                         });
                         // Stamp each expanded field with the parent's category and business object name
+                        // Force formVisible to true for fields selected by gridVisible,
+                        // so they are not hidden by buildFormContent's formVisible check
                         aVisibleFields.forEach(function (oExpandedField) {
                             oExpandedField.category = sParentCategory;
+                            oExpandedField.formVisible = true;
                             if (sBusinessObjectName) {
                                 oExpandedField._businessObjectName = sBusinessObjectName;
                             }
@@ -688,6 +830,50 @@ sap.ui.define([
                             }
                         }
 
+                        // Check if field has a unitId — add unit symbol link
+                        var bHasUnit = oField.unitId !== undefined && oField.unitId !== null;
+                        var oUnitLink = null;
+                        if (bHasUnit) {
+                            var oUnitInfo = self._getUnitInfoForField(oField.unitId);
+                            if (oUnitInfo && oUnitInfo.symbol) {
+                                // Ensure preference map is built from Unit_Item + Unit cross-reference
+                                self._ensureUserPreferredUnitMap();
+                                // Check for user preferred unit for this unit type
+                                var iPreferredUnitId = self._oUserPreferredUnitByType
+                                    ? self._oUserPreferredUnitByType[Number(oUnitInfo.utId)]
+                                    : null;
+                                var sDisplaySymbol = oUnitInfo.symbol;
+                                var fInitGradient = 1;
+                                var fInitConstant = 0;
+
+                                if (iPreferredUnitId !== null && iPreferredUnitId !== undefined) {
+                                    var oPreferredUnit = self._aUnitData.find(function (oU) {
+                                        return Number(oU.Unit_ID) === Number(iPreferredUnitId) && Number(oU.UT_ID) === Number(oUnitInfo.utId);
+                                    });
+                                    if (oPreferredUnit) {
+                                        sDisplaySymbol = oPreferredUnit.Symbol || sDisplaySymbol;
+                                        fInitGradient = parseFloat(oPreferredUnit.Gradient) || 1;
+                                        fInitConstant = parseFloat(oPreferredUnit.Constant) || 0;
+                                    }
+                                }
+
+                                oUnitLink = new Link({
+                                    text: sDisplaySymbol,
+                                    press: self._onUnitSymbolPress.bind(self, sFieldKey, oField.unitId)
+                                });
+                                oUnitLink.addStyleClass("uomUnitLink");
+                                // Store link reference and current unit info for later updates
+                                self._unitLinkMap[sFieldKey] = oUnitLink;
+                                self._unitFieldInfo[sFieldKey] = {
+                                    unitId: oField.unitId,
+                                    defaultSymbol: oUnitInfo.symbol,
+                                    currentSymbol: sDisplaySymbol,
+                                    currentGradient: fInitGradient,
+                                    currentConstant: fInitConstant
+                                };
+                            }
+                        }
+
                         if (bVisible && Number(oField.fieldTypeId) == 40 && !oField.subTableId) {
                             // Create Button
                             var oButton = new sap.m.Button({
@@ -696,11 +882,80 @@ sap.ui.define([
                             });
                             oButton.addStyleClass("italicButton");
 
-                            // HBox places controls horizontally (side by side)
+                            // Input fills remaining space; button and unit link stay compact
+                            oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
+                            oButton.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
+                            var aHBoxItems = [oInput, oButton];
+                            if (oUnitLink) {
+                                oUnitLink.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
+                                aHBoxItems.push(oUnitLink);
+                            }
+
                             var oHBox = new sap.m.HBox({
-                                items: [oInput, oButton],
+                                items: aHBoxItems,
                                 renderType: "Bare",
-                                alignItems: "Center"
+                                alignItems: "Center",
+                                width: "100%"
+                            });
+                            aFormContent.push(oHBox);
+                        }
+                        else if (bVisible && (Number(oField.fieldTypeId) == 18 || Number(oField.fieldTypeId) == 37)) {
+                            // Create f(p) button for global table lookup fields
+                            var oGlobalBtn = new sap.m.Button({
+                                text: "f(p)",
+                                press: self._onGlobalTableInfoPress.bind(self, oField)
+                            });
+                            oGlobalBtn.addStyleClass("italicButton");
+
+                            oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
+                            oGlobalBtn.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
+                            var aHBoxItems = [oInput, oGlobalBtn];
+                            if (oUnitLink) {
+                                oUnitLink.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
+                                aHBoxItems.push(oUnitLink);
+                            }
+
+                            var oHBox = new sap.m.HBox({
+                                items: aHBoxItems,
+                                renderType: "Bare",
+                                alignItems: "Center",
+                                width: "100%"
+                            });
+                            aFormContent.push(oHBox);
+                        }
+                        else if (bVisible && Number(oField.fieldTypeId) == 42) {
+                            // Create f(n) button for global table lookup fields
+                            var oGlobalNBtn = new sap.m.Button({
+                                text: "f(n)",
+                                press: self._onGlobalTableInfoPress.bind(self, oField)
+                            });
+                            oGlobalNBtn.addStyleClass("italicButton");
+
+                            oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
+                            oGlobalNBtn.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
+                            var aHBoxItems = [oInput, oGlobalNBtn];
+                            if (oUnitLink) {
+                                oUnitLink.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
+                                aHBoxItems.push(oUnitLink);
+                            }
+
+                            var oHBox = new sap.m.HBox({
+                                items: aHBoxItems,
+                                renderType: "Bare",
+                                alignItems: "Center",
+                                width: "100%"
+                            });
+                            aFormContent.push(oHBox);
+                        }
+                        else if (oUnitLink) {
+                            // Input fills remaining space; unit link stays compact on the right
+                            oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
+                            oUnitLink.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
+                            var oHBox = new sap.m.HBox({
+                                items: [oInput, oUnitLink],
+                                renderType: "Bare",
+                                alignItems: "Center",
+                                width: "100%"
                             });
                             aFormContent.push(oHBox);
                         }
@@ -1322,6 +1577,15 @@ sap.ui.define([
                     return;
                 }
 
+                // Rule 1b: Expanded BO fields (from foreign table) are governed by
+                // gridVisible, not by the parent table's validation updateStates.
+                // Keep them visible and skip the updateStates check.
+                if (oField._businessObjectName) {
+                    oControl.setVisible(true);
+                    iVisibleFieldCount++;
+                    return;
+                }
+
                 // Rule 2: formVisible is true or not specified, check updateStates
                 var bFieldVisible = true; // default visibility
 
@@ -1446,6 +1710,40 @@ sap.ui.define([
                 });
             }
         },
+        _onGlobalTableInfoPress: function (oField, oEvent) {
+            var sTableName = this._formDataTableName || "";
+            var sFieldName = oField.name || oField.fieldName || "";
+
+            if (!this._oGlobalTableInfoDialog) {
+                this._oGlobalTableInfoDialog = new sap.m.Dialog({
+                    title: "Global Table Info",
+                    type: "Message",
+                    contentWidth: "20rem",
+                    buttons: [
+                        new sap.m.Button({
+                            text: "Close",
+                            press: function () {
+                                this._oGlobalTableInfoDialog.close();
+                            }.bind(this)
+                        })
+                    ]
+                });
+                this.getView().addDependent(this._oGlobalTableInfoDialog);
+            }
+
+            this._oGlobalTableInfoDialog.destroyContent();
+            this._oGlobalTableInfoDialog.addContent(
+                new VBox({
+                    items: [
+                        new Label({ text: "Table", design: "Bold" }),
+                        new Text({ text: sTableName }),
+                        new Label({ text: "Field Name", design: "Bold" }).addStyleClass("sapUiSmallMarginTop"),
+                        new Text({ text: sFieldName })
+                    ]
+                }).addStyleClass("sapUiSmallMargin")
+            );
+            this._oGlobalTableInfoDialog.open();
+        },
         _showFieldImagePopup: function (sSrc, sTitle) {
             // Revoke previous object URL to avoid memory leaks
             if (this._fieldImageObjectUrl) {
@@ -1507,6 +1805,259 @@ sap.ui.define([
                     oInner.style.fontWeight = "bold";
                 }
             });
+        },
+
+        /**
+         * For a field's unitId, find the matching Unit_Type (by Ref_Unit_ID),
+         * then find the reference Unit (by UT_ID) to get the Symbol.
+         * Returns { symbol, utId, refUnit } or null.
+         */
+        _getUnitInfoForField: function (iUnitId) {
+            if (!iUnitId) { return null; }
+            var iId = Number(iUnitId);
+
+            // Find Unit_Type where Ref_Unit_ID === unitId
+            var oUnitType = null;
+            for (var i = 0; i < this._aUnitTypeData.length; i++) {
+                if (Number(this._aUnitTypeData[i].Ref_Unit_ID) === iId) {
+                    oUnitType = this._aUnitTypeData[i];
+                    break;
+                }
+            }
+            if (!oUnitType) { return null; }
+
+            // Find the reference Unit in Unit data where Unit_ID === Ref_Unit_ID
+            var oRefUnit = null;
+            for (var j = 0; j < this._aUnitData.length; j++) {
+                if (Number(this._aUnitData[j].Unit_ID) === iId) {
+                    oRefUnit = this._aUnitData[j];
+                    break;
+                }
+            }
+
+            return {
+                symbol: oRefUnit ? oRefUnit.Symbol : (oUnitType.Reference_Symbol || ""),
+                utId: oUnitType.UT_ID,
+                refUnit: oRefUnit,
+                unitTypeName: oUnitType.Name
+            };
+        },
+
+        /**
+         * Get all units belonging to a UT_ID (unit type).
+         */
+        _getUnitsForType: function (iUtId) {
+            var iId = Number(iUtId);
+            return this._aUnitData.filter(function (oUnit) {
+                return Number(oUnit.UT_ID) === iId;
+            });
+        },
+
+        /**
+         * Lazily build the UT_ID -> preferred Unit_ID map by cross-referencing
+         * Unit_Item records (which only have Unit_ID) with /bo/Unit/ data (which has UT_ID).
+         */
+        _ensureUserPreferredUnitMap: function () {
+            if (this._bUserPreferredMapBuilt) { return; }
+            if (!this._aRawUnitItems || this._aRawUnitItems.length === 0 || this._aUnitData.length === 0) { return; }
+
+            this._oUserPreferredUnitByType = {};
+            var oMap = this._oUserPreferredUnitByType;
+            var aUnitData = this._aUnitData;
+            this._aRawUnitItems.forEach(function (oItem) {
+                if (oItem.Unit_ID) {
+                    var iUnitId = Number(oItem.Unit_ID);
+                    var oUnit = aUnitData.find(function (oU) {
+                        return Number(oU.Unit_ID) === iUnitId;
+                    });
+                    if (oUnit && oUnit.UT_ID) {
+                        oMap[Number(oUnit.UT_ID)] = iUnitId;
+                    }
+                }
+            });
+            this._bUserPreferredMapBuilt = true;
+        },
+
+        /**
+         * Handle unit symbol Link press: read the current field value,
+         * calculate conversions for all units of that type, and show in a Popover.
+         */
+        _onUnitSymbolPress: function (sFieldKey, iUnitId, oEvent) {
+            var oSource = oEvent.getSource();
+            var oControl = this._fieldControlMap[sFieldKey];
+            var self = this;
+            var vFieldValue = 0;
+
+            // Read current value from the form field
+            if (oControl) {
+                if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
+                    vFieldValue = parseFloat(oControl.getValue()) || 0;
+                } else if (oControl.isA("sap.m.Select")) {
+                    vFieldValue = parseFloat(oControl.getSelectedKey()) || 0;
+                }
+            }
+
+            var oUnitInfo = this._getUnitInfoForField(iUnitId);
+            if (!oUnitInfo) {
+                MessageToast.show("No unit information available");
+                return;
+            }
+
+            // Get all units in this unit type
+            var aUnits = this._getUnitsForType(oUnitInfo.utId);
+            if (aUnits.length === 0) {
+                MessageToast.show("No unit conversions available");
+                return;
+            }
+
+            // Determine current unit gradient/constant to convert back to reference first
+            var oCurrentInfo = this._unitFieldInfo[sFieldKey];
+            var fCurrentGradient = (oCurrentInfo && oCurrentInfo.currentGradient) || 1;
+            var fCurrentConstant = (oCurrentInfo && oCurrentInfo.currentConstant) || 0;
+            // Convert field value back to reference unit value
+            var vRefValue = (vFieldValue - fCurrentConstant) / fCurrentGradient;
+
+            // Ensure preference map is built from Unit_Item + Unit cross-reference
+            self._ensureUserPreferredUnitMap();
+            // Check for user preferred unit for this unit type
+            var iPreferredUnitId = self._oUserPreferredUnitByType
+                ? self._oUserPreferredUnitByType[Number(oUnitInfo.utId)]
+                : null;
+
+            // For each target unit: converted = vRefValue * targetGradient + targetConstant
+            var aConvertedItems = aUnits.map(function (oUnit) {
+                var fGradient = parseFloat(oUnit.Gradient) || 1;
+                var fConstant = parseFloat(oUnit.Constant) || 0;
+                var fConverted = vRefValue * fGradient + fConstant;
+                var iDecimals = (oUnit.Decimals !== undefined && oUnit.Decimals !== null) ? Number(oUnit.Decimals) : 2;
+                var sConverted = fConverted.toFixed(iDecimals);
+                return {
+                    name: oUnit.Name,
+                    symbol: oUnit.Symbol || "",
+                    value: sConverted,
+                    gradient: fGradient,
+                    constant: fConstant,
+                    unitId: oUnit.Unit_ID,
+                    isPreferred: iPreferredUnitId !== null && iPreferredUnitId !== undefined && Number(oUnit.Unit_ID) === Number(iPreferredUnitId)
+                };
+            });
+
+            // Sort preferred unit to top
+            aConvertedItems.sort(function (a, b) {
+                if (a.isPreferred && !b.isPreferred) { return -1; }
+                if (!a.isPreferred && b.isPreferred) { return 1; }
+                return 0;
+            });
+
+            // Determine which unit is the reference (default) unit
+            var iRefUnitId = oUnitInfo.refUnit ? Number(oUnitInfo.refUnit.Unit_ID) : null;
+
+            // Build and open Popover with unit conversions using DisplayListItem
+            var oList = new List({
+                mode: "SingleSelectMaster",
+                items: aConvertedItems.map(function (oItem) {
+                    var bIsDefault = iRefUnitId !== null && Number(oItem.unitId) === iRefUnitId;
+                    var bIsCurrent = oItem.symbol === (oCurrentInfo && oCurrentInfo.currentSymbol);
+                    var sLabel = oItem.name + " (" + oItem.symbol + ")";
+                    if (bIsDefault) { sLabel += "  ·  Default"; }
+                    var oListItem = new DisplayListItem({
+                        label: sLabel,
+                        value: oItem.value + " " + oItem.symbol,
+                        type: "Active",
+                        selected: bIsCurrent
+                    });
+                    if (bIsDefault) { oListItem.addStyleClass("uomDefaultItem"); }
+                    if (bIsCurrent) { oListItem.addStyleClass("uomCurrentItem"); }
+                    oListItem.data("unitSymbol", oItem.symbol);
+                    oListItem.data("unitValue", oItem.value);
+                    oListItem.data("unitGradient", oItem.gradient);
+                    oListItem.data("unitConstant", oItem.constant);
+                    return oListItem;
+                }),
+                selectionChange: function (oSelEvent) {
+                    var oSelectedItem = oSelEvent.getParameter("listItem");
+                    if (!oSelectedItem) { return; }
+
+                    var sNewValue = oSelectedItem.data("unitValue");
+                    var sNewSymbol = oSelectedItem.data("unitSymbol");
+                    var fNewGradient = oSelectedItem.data("unitGradient");
+                    var fNewConstant = oSelectedItem.data("unitConstant");
+
+                    // Update the input field with the converted value
+                    if (oControl) {
+                        if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
+                            oControl.setValue(sNewValue);
+                        } else if (oControl.isA("sap.m.Select")) {
+                            oControl.setSelectedKey(sNewValue);
+                        }
+                    }
+
+                    // Update the unit link text to the selected unit symbol
+                    var oUnitLink = self._unitLinkMap[sFieldKey];
+                    if (oUnitLink) {
+                        oUnitLink.setText(sNewSymbol);
+                    }
+
+                    // Store current unit gradient/constant so next conversion is correct
+                    if (self._unitFieldInfo[sFieldKey]) {
+                        self._unitFieldInfo[sFieldKey].currentSymbol = sNewSymbol;
+                        self._unitFieldInfo[sFieldKey].currentGradient = fNewGradient;
+                        self._unitFieldInfo[sFieldKey].currentConstant = fNewConstant;
+                    }
+
+                    // Close the popover after selection
+                    if (self._oUnitPopover) {
+                        self._oUnitPopover.close();
+                    }
+                }
+            });
+
+            // Destroy previous popover if it exists
+            if (this._oUnitPopover) {
+                this._oUnitPopover.destroy();
+                this._oUnitPopover = null;
+            }
+
+            // Build info toolbar showing Default and Preferred values
+            var aInfoContent = [];
+
+            // Default (reference) unit value
+            if (oUnitInfo.refUnit) {
+                var sRefSymbol = oUnitInfo.refUnit.Symbol || oUnitInfo.refUnit.Name || "";
+                var iRefDecimals = (oUnitInfo.refUnit.Decimals !== undefined && oUnitInfo.refUnit.Decimals !== null) ? Number(oUnitInfo.refUnit.Decimals) : 2;
+                var sRefFormatted = vRefValue.toFixed(iRefDecimals);
+                aInfoContent.push(new sap.m.Label({ text: "Default:", design: "Bold" }));
+                aInfoContent.push(new sap.m.Text({ text: sRefFormatted + " " + sRefSymbol }));
+            }
+
+            // Preferred unit value
+            var oPreferredItem = iPreferredUnitId !== null && iPreferredUnitId !== undefined
+                ? aConvertedItems.find(function (o) { return o.isPreferred; })
+                : null;
+            if (oPreferredItem) {
+                aInfoContent.push(new sap.m.ToolbarSpacer());
+                aInfoContent.push(new sap.m.Label({ text: "Preferred:", design: "Bold" }));
+                aInfoContent.push(new sap.m.Text({ text: oPreferredItem.value + " " + oPreferredItem.symbol }));
+            }
+
+            var aPopoverContent = [];
+            if (aInfoContent.length > 0) {
+                var oInfoBar = new sap.m.Toolbar({ content: aInfoContent });
+                oInfoBar.addStyleClass("uomPopoverInfoBar");
+                aPopoverContent.push(oInfoBar);
+            }
+            aPopoverContent.push(oList);
+
+            this._oUnitPopover = new Popover({
+                title: oUnitInfo.unitTypeName || "Unit Conversions",
+                contentWidth: "360px",
+                placement: "Bottom",
+                showHeader: true,
+                content: aPopoverContent
+            });
+            this._oUnitPopover.addStyleClass("uomConversionPopover");
+
+            this._oUnitPopover.openBy(oSource);
         },
         _checkPermissions: function (sProductValue, sHash) {
             var self = this;
@@ -1595,22 +2146,39 @@ sap.ui.define([
                 }
             });
 
-            // Build cascade order: detect parent→child chain from data
-            // The field whose unique count is smallest over all rows is the top-level parent
-            // Order: Asset_Type → Generic_Material → Spec_and_Grade → Product_Form → Condition
-            //         Nps → Schedule
-            // We detect chains by checking: for each pair (A,B), if every unique B maps to exactly one A, then A is parent of B
+            // Build cascade order using form order with independent chain detection
+            // E.g. Asset_Type → Generic_Material → Spec_and_Grade → Product_Form → Condition
+            //       Nps → Schedule (independent chain)
             var aCascadeOrder = this._buildCascadeOrder(aSelectFields, aRows);
             this._cascadeFieldOrder[sBusinessObjectName] = aCascadeOrder;
 
-            // Populate the first field (root) with all unique values
-            if (aCascadeOrder.length > 0) {
-                var sRootField = aCascadeOrder[0];
-                this._populateSelectUnique(sRootField, aRows);
-            }
+            // Build chain index: field → chain index (for cross-chain boundary checks)
+            var aChains = aCascadeOrder._chains || [aCascadeOrder.slice()];
+            this._cascadeChainIndex = this._cascadeChainIndex || {};
+            var oChainIndex = {};
+            aChains.forEach(function (aChain, iChainIdx) {
+                aChain.forEach(function (sField) {
+                    oChainIndex[sField] = iChainIdx;
+                });
+            });
+            this._cascadeChainIndex[sBusinessObjectName] = oChainIndex;
 
-            // Set selected values from the first row for root, then cascade down
-            var oFirstRow = aRows[0];
+            // Populate root of each independent chain with all unique values
+            aChains.forEach(function (aChain) {
+                if (aChain.length > 0) {
+                    self._populateSelectUnique(aChain[0], aRows);
+                }
+            });
+
+            // Find the matching row based on the parent record's link value
+            var oMatchInfo = this._linkedFieldMatchInfo && this._linkedFieldMatchInfo[sBusinessObjectName];
+            var oMatchedRow = null;
+            if (oMatchInfo && oMatchInfo.filterField && oMatchInfo.linkValue !== undefined) {
+                oMatchedRow = aRows.find(function(oRow) {
+                    return String(oRow[oMatchInfo.filterField]) === String(oMatchInfo.linkValue);
+                });
+            }
+            var oFirstRow = oMatchedRow || aRows[0];
             for (var i = 0; i < aCascadeOrder.length; i++) {
                 var sField = aCascadeOrder[i];
                 var oControl = this._fieldControlMap[sField];
@@ -1656,81 +2224,77 @@ sap.ui.define([
         },
 
         /**
-         * Build cascade order by detecting parent→child relationships from data.
-         * A is parent of B if the number of unique A values < unique B values
-         * and each unique B value maps to exactly one A value.
-         * Separate independent chains (e.g. Nps→Schedule vs Asset_Type→...→Condition).
+         * Build cascade order using form order (fields are already sorted by formOrder
+         * from buildFormContent). Separate independent chains by checking correlation:
+         * two fields are in the same chain if filtering by one affects the other's
+         * available values.
+         * E.g. Asset_Type → Generic_Material → Spec_and_Grade → Product_Form → Condition
+         *      Nps → Schedule (independent chain)
          */
         _buildCascadeOrder: function (aSelectFields, aRows) {
             if (aSelectFields.length <= 1) { return aSelectFields.slice(); }
 
-            // Count unique values per field
-            var oUniqueCounts = {};
-            var oFieldValues = {};
+            // Collect total unique values per field
+            var oAllUnique = {};
             aSelectFields.forEach(function (sField) {
                 var oSeen = {};
-                var iCount = 0;
                 aRows.forEach(function (oRow) {
                     var v = oRow[sField];
                     if (v !== undefined && v !== null && v !== "") {
-                        var s = String(v);
-                        if (!oSeen[s]) { oSeen[s] = true; iCount++; }
+                        oSeen[String(v)] = true;
                     }
                 });
-                oUniqueCounts[sField] = iCount;
-                oFieldValues[sField] = oSeen;
+                oAllUnique[sField] = Object.keys(oSeen).length;
             });
 
-            // Detect parent relationships: for each pair check if B→A is many-to-one
-            var oParentOf = {}; // oParentOf[child] = parent
-            aSelectFields.forEach(function (sB) {
-                aSelectFields.forEach(function (sA) {
-                    if (sA === sB) { return; }
-                    if (oUniqueCounts[sA] >= oUniqueCounts[sB]) { return; }
-                    // Check if every value of sB maps to exactly one sA
-                    var oBtoA = {};
-                    var bValid = true;
-                    for (var r = 0; r < aRows.length && bValid; r++) {
-                        var vB = aRows[r][sB];
-                        var vA = aRows[r][sA];
-                        if (vB === undefined || vB === null || vB === "") { continue; }
-                        if (vA === undefined || vA === null || vA === "") { continue; }
-                        var sB_val = String(vB);
-                        var sA_val = String(vA);
-                        if (oBtoA[sB_val] === undefined) {
-                            oBtoA[sB_val] = sA_val;
-                        } else if (oBtoA[sB_val] !== sA_val) {
-                            bValid = false;
-                        }
-                    }
-                    if (bValid && (!oParentOf[sB] || oUniqueCounts[sA] < oUniqueCounts[oParentOf[sB]])) {
-                        oParentOf[sB] = sA;
-                    }
+            // Check if filtering by fieldA reduces the unique values of fieldB
+            function influences(sA, sB) {
+                var iBTotal = oAllUnique[sB];
+                if (iBTotal <= 1) { return false; }
+                var oGroupedByA = {};
+                aRows.forEach(function (oRow) {
+                    var vA = oRow[sA], vB = oRow[sB];
+                    if (vA == null || vA === "" || vB == null || vB === "") { return; }
+                    var sAVal = String(vA);
+                    if (!oGroupedByA[sAVal]) { oGroupedByA[sAVal] = {}; }
+                    oGroupedByA[sAVal][String(vB)] = true;
                 });
-            });
-
-            // Build chains from roots
-            var aRoots = aSelectFields.filter(function (s) { return !oParentOf[s]; });
-            var oChildrenOf = {};
-            Object.keys(oParentOf).forEach(function (sChild) {
-                var sParent = oParentOf[sChild];
-                if (!oChildrenOf[sParent]) { oChildrenOf[sParent] = []; }
-                oChildrenOf[sParent].push(sChild);
-            });
-
-            // DFS to build ordered chain
-            var aResult = [];
-            function walkChain(sNode) {
-                aResult.push(sNode);
-                var aKids = oChildrenOf[sNode] || [];
-                // Sort children by unique count ascending
-                aKids.sort(function (a, b) { return oUniqueCounts[a] - oUniqueCounts[b]; });
-                aKids.forEach(walkChain);
+                var aGroups = Object.keys(oGroupedByA);
+                for (var i = 0; i < aGroups.length; i++) {
+                    if (Object.keys(oGroupedByA[aGroups[i]]).length < iBTotal) {
+                        return true;
+                    }
+                }
+                return false;
             }
-            // Sort roots by unique count ascending
-            aRoots.sort(function (a, b) { return oUniqueCounts[a] - oUniqueCounts[b]; });
-            aRoots.forEach(walkChain);
 
+            // Group into independent chains: consecutive correlated fields
+            var aChains = [[aSelectFields[0]]];
+            for (var i = 1; i < aSelectFields.length; i++) {
+                var sCur = aSelectFields[i];
+                var aChain = aChains[aChains.length - 1];
+                var bCorrelated = false;
+                for (var j = 0; j < aChain.length; j++) {
+                    if (influences(aChain[j], sCur) || influences(sCur, aChain[j])) {
+                        bCorrelated = true;
+                        break;
+                    }
+                }
+                if (bCorrelated) {
+                    aChain.push(sCur);
+                } else {
+                    aChains.push([sCur]);
+                }
+            }
+
+            // Flatten chains maintaining form order within each
+            var aResult = [];
+            aChains.forEach(function (aChain) {
+                aResult = aResult.concat(aChain);
+            });
+
+            // Attach chain boundaries so consumers can respect independent chains
+            aResult._chains = aChains;
             return aResult;
         },
 
@@ -1775,13 +2339,21 @@ sap.ui.define([
         },
 
         /**
-         * Get rows filtered by all ancestor Select values up to (but not including) iFieldIdx.
+         * Get rows filtered by ancestor Select values in the same chain up to (but not including) iFieldIdx.
          */
         _getFilteredRows: function (sBusinessObjectName, aCascadeOrder, iFieldIdx) {
             var aAllRows = this._linkedDataByBO[sBusinessObjectName] || [];
             var aFiltered = aAllRows;
+            var oChainIndex = this._cascadeChainIndex && this._cascadeChainIndex[sBusinessObjectName];
+            var sTargetField = aCascadeOrder[iFieldIdx];
+            var iTargetChain = oChainIndex ? oChainIndex[sTargetField] : undefined;
+
             for (var i = 0; i < iFieldIdx; i++) {
                 var sAncestor = aCascadeOrder[i];
+                // Skip ancestors from different independent chains
+                if (oChainIndex && iTargetChain !== undefined && oChainIndex[sAncestor] !== iTargetChain) {
+                    continue;
+                }
                 var oAncestorCtrl = this._fieldControlMap[sAncestor];
                 if (oAncestorCtrl && oAncestorCtrl.isA("sap.m.Select")) {
                     var sSelectedKey = oAncestorCtrl.getSelectedKey();
@@ -1796,12 +2368,20 @@ sap.ui.define([
         },
 
         /**
-         * Handle cascade Select change: clear and repopulate all child Selects.
+         * Handle cascade Select change: clear and repopulate child Selects in the same chain.
          */
         _onCascadeSelectChange: function (sBusinessObjectName, aCascadeOrder, iChangedIdx) {
-            // For each child field after the changed one, repopulate with filtered unique values
+            var oChainIndex = this._cascadeChainIndex && this._cascadeChainIndex[sBusinessObjectName];
+            var sChangedField = aCascadeOrder[iChangedIdx];
+            var iChangedChain = oChainIndex ? oChainIndex[sChangedField] : undefined;
+
+            // For each child field after the changed one in the same chain, repopulate
             for (var i = iChangedIdx + 1; i < aCascadeOrder.length; i++) {
                 var sChildField = aCascadeOrder[i];
+                // Skip fields from different independent chains
+                if (oChainIndex && iChangedChain !== undefined && oChainIndex[sChildField] !== iChangedChain) {
+                    continue;
+                }
                 var oChildCtrl = this._fieldControlMap[sChildField];
                 if (!oChildCtrl || !oChildCtrl.isA("sap.m.Select")) { continue; }
 
@@ -2104,7 +2684,20 @@ sap.ui.define([
                     if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                         vValue = oControl.getValue();
                         if (vValue !== "" && vValue !== undefined) {
-                            oPayload[sFieldKey] = vValue;
+                            // Convert UOM fields back to default (reference) unit before saving
+                            var oUnitMeta = self._unitFieldInfo && self._unitFieldInfo[sFieldKey];
+                            if (oUnitMeta && (oUnitMeta.currentGradient !== 1 || oUnitMeta.currentConstant !== 0)) {
+                                var fDisplayed = parseFloat(vValue);
+                                if (!isNaN(fDisplayed)) {
+                                    // Reverse: refValue = (displayedValue - constant) / gradient
+                                    var fRefValue = (fDisplayed - oUnitMeta.currentConstant) / oUnitMeta.currentGradient;
+                                    oPayload[sFieldKey] = String(fRefValue);
+                                } else {
+                                    oPayload[sFieldKey] = vValue;
+                                }
+                            } else {
+                                oPayload[sFieldKey] = vValue;
+                            }
                         }
                     } else if (oControl.isA("sap.m.DatePicker")) {
                         // Use getDateValue() to get the JS Date, then format to yyyy-MM-dd

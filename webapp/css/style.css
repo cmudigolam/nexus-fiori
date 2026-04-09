@@ -113,6 +113,71 @@ html .sapUiContainer-Medium .sapUxAPObjectPageSectionHeader {
     font-style: normal;
 }
 
+/* Unit of measure link next to form inputs */
+.uomUnitLink {
+    min-width: 2rem;
+    padding: 0 0.5rem;
+    margin-left: 0.375rem;
+    flex-shrink: 0;
+    line-height: 2.25rem;
+    white-space: nowrap;
+    text-align: center;
+}
+
+.uomUnitLink .sapMLnk {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--sapLinkColor, #0064d9);
+    text-decoration: none;
+}
+
+.uomUnitLink:hover .sapMLnk {
+    text-decoration: underline;
+}
+
+/* Popover enterprise styling */
+.uomConversionPopover .sapMPopoverScroll {
+    padding: 0;
+}
+
+.uomConversionPopover .sapMPopoverCont {
+    padding: 0;
+}
+
+.uomPopoverInfoBar {
+    background: var(--sapInfobar_Background, #e8f0f6);
+    border-bottom: 1px solid var(--sapGroup_ContentBorderColor, #d9d9d9);
+    padding: 0.375rem 0.75rem;
+    min-height: 2rem;
+}
+
+.uomPopoverInfoBar .sapMLabel {
+    font-size: 0.8125rem;
+    color: var(--sapContent_LabelColor, #6a6d70);
+    margin-right: 0.25rem;
+}
+
+.uomPopoverInfoBar .sapMText {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--sapTextColor, #32363a);
+}
+
+/* Default and current unit highlighting in popover list */
+.uomDefaultItem .sapMDLILabel {
+    color: var(--sapPositiveTextColor, #107e3e);
+    font-weight: 600;
+}
+
+.uomCurrentItem {
+    background: var(--sapList_SelectionBackgroundColor, #e5f0fa) !important;
+}
+
+.uomCurrentItem .sapMDLIValue {
+    font-weight: 700;
+    color: var(--sapBrandColor, #0a6ed1);
+}
+
 .sapFDynamicPage-Std-Phone .sapFDynamicPageContent, .sapFDynamicPage-Std-Phone .sapFDynamicPageContentFitContainer {
     padding: 1rem 1rem 0 1rem !important;
 }
