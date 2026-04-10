@@ -900,12 +900,15 @@ sap.ui.define([
                             aFormContent.push(oHBox);
                         }
                         else if (bVisible && (Number(oField.fieldTypeId) == 18 || Number(oField.fieldTypeId) == 37)) {
-                            // Create f(p) button for global table lookup fields
+                            // Create ƒ(p) button for global table lookup fields
                             var oGlobalBtn = new sap.m.Button({
-                                text: "f(p)",
+                                text: "ƒ(p)",
                                 press: self._onGlobalTableInfoPress.bind(self, oField)
                             });
                             oGlobalBtn.addStyleClass("italicButton");
+
+                            // Disable the form field for fieldTypeId 18/37 (value set via ƒ(p) lookup)
+                            oInput.setEnabled(false);
 
                             oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
                             oGlobalBtn.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
@@ -924,9 +927,9 @@ sap.ui.define([
                             aFormContent.push(oHBox);
                         }
                         else if (bVisible && Number(oField.fieldTypeId) == 42) {
-                            // Create f(n) button for global table lookup fields
+                            // Create ƒ(n) button for global table lookup fields
                             var oGlobalNBtn = new sap.m.Button({
-                                text: "f(n)",
+                                text: "ƒ(n)",
                                 press: self._onGlobalTableInfoPress.bind(self, oField)
                             });
                             oGlobalNBtn.addStyleClass("italicButton");
@@ -1069,6 +1072,16 @@ sap.ui.define([
                     // Note: For fieldTypeId 37, lookupListId should be set separately
                     return oSelect;
                 case 40: // Sub-table
+                    return new sap.m.Input({
+                        //placeholder: oField.name || oField.fieldName,
+                        enabled: false
+                    });
+                case 18: // Sub-table
+                    return new sap.m.Input({
+                        //placeholder: oField.name || oField.fieldName,
+                        enabled: false
+                    });
+                case 42: // Sub-table
                     return new sap.m.Input({
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
@@ -1711,8 +1724,11 @@ sap.ui.define([
             }
         },
         _onGlobalTableInfoPress: function (oField, oEvent) {
-            var sTableName = this._formDataTableName || "";
             var sFieldName = oField.name || oField.fieldName || "";
+            // Use the Dynamic Form Dialog title (tile title) as the display value
+            var sDialogTitle = this._oFormDialog && this._oFormDialog.getModel("FormData")
+                ? (this._oFormDialog.getModel("FormData").getProperty("/title") || this._formDataTableName || "")
+                : (this._formDataTableName || "");
 
             if (!this._oGlobalTableInfoDialog) {
                 this._oGlobalTableInfoDialog = new sap.m.Dialog({
@@ -1736,7 +1752,7 @@ sap.ui.define([
                 new VBox({
                     items: [
                         new Label({ text: "Table", design: "Bold" }),
-                        new Text({ text: sTableName }),
+                        new Text({ text: sDialogTitle }),
                         new Label({ text: "Field Name", design: "Bold" }).addStyleClass("sapUiSmallMarginTop"),
                         new Text({ text: sFieldName })
                     ]
@@ -2500,7 +2516,8 @@ sap.ui.define([
             }
 
             var sVnId = oSelectedNode.VN_ID;
-            var sAigId = oSelectedNode.Component_ID || "";
+            var sAigData = oLocalDataModel.getProperty("/selectedTableData");
+            var sAigId = sAigData && sAigData.key ? sAigData.key : "";
 
             var sUrl = "https://trial.nexusic.com/?navigateTo=Asset&searchKey=VN_ID&searchValue=" + encodeURIComponent(sVnId) + "&tab=AIG&aigId=" + encodeURIComponent(sAigId);
             window.open(sUrl, "_blank");
