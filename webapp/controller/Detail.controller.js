@@ -531,6 +531,7 @@ sap.ui.define([
 
             // Build form content dynamically
             self._fieldControlMap = {};
+            self._fieldVisibilityMap = {};
             self._fieldBusinessObjectMap = {};
             self._linkedDataByBO = {};
             self._cascadeFieldOrder = {};
@@ -721,6 +722,40 @@ sap.ui.define([
                 ? oFormData.categories
                 : [{ name: "General" }];
 
+            // Keep category order aligned to metadata field ordering.
+            // Category order is defined by the lowest formOrder among visible fields in that category.
+            var oCategoryOriginalIndex = {};
+            aCategories.forEach(function (oCategory, iIndex) {
+                oCategoryOriginalIndex[oCategory.name] = iIndex;
+            });
+
+            var oCategoryMinOrder = {};
+            aCategories.forEach(function (oCategory) {
+                oCategoryMinOrder[oCategory.name] = Number.POSITIVE_INFINITY;
+            });
+
+            aCategories.forEach(function (oCategory) {
+                var aCategoryFields = Array.isArray(oCategorizedFields[oCategory.name]) ? oCategorizedFields[oCategory.name] : [];
+                aCategoryFields.forEach(function (oField) {
+                    if (!oField || (oField.gridVisible !== true && oField.formVisible !== true)) {
+                        return;
+                    }
+                    var iOrder = parseInt(oField.formOrder, 10);
+                    if (!Number.isNaN(iOrder) && iOrder < oCategoryMinOrder[oCategory.name]) {
+                        oCategoryMinOrder[oCategory.name] = iOrder;
+                    }
+                });
+            });
+
+            aCategories = aCategories.slice().sort(function (a, b) {
+                var iA = oCategoryMinOrder[a.name];
+                var iB = oCategoryMinOrder[b.name];
+                if (iA !== iB) {
+                    return iA - iB;
+                }
+                return oCategoryOriginalIndex[a.name] - oCategoryOriginalIndex[b.name];
+            });
+
             if (!oCategorizedFields.General && aCategories.length === 1 && aCategories[0].name === "General") {
                 oCategorizedFields.General = Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [];
             }
@@ -795,6 +830,12 @@ sap.ui.define([
                                 visible: bVisible
                             });
                             oVBox.addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginBottom");
+                            if (sFieldKey) {
+                                self._fieldVisibilityMap[sFieldKey] = {
+                                    label: oTitleLabel,
+                                    container: oVBox
+                                };
+                            }
                             aSubTableBlocks.push(oVBox);
                             return; // skip adding to aFormContent
                         }
@@ -822,6 +863,10 @@ sap.ui.define([
                         var sFieldKey = oField.fieldName || oField.name;
                         if (sFieldKey) {
                             self._fieldControlMap[sFieldKey] = oInput;
+                            self._fieldVisibilityMap[sFieldKey] = {
+                                label: oLabel,
+                                container: oInput
+                            };
                             if (oField._businessObjectName) {
                                 self._fieldBusinessObjectMap[sFieldKey] = oField._businessObjectName;
                             }
@@ -897,6 +942,9 @@ sap.ui.define([
                                 alignItems: "Center",
                                 width: "100%"
                             });
+                            if (sFieldKey) {
+                                self._fieldVisibilityMap[sFieldKey].container = oHBox;
+                            }
                             aFormContent.push(oHBox);
                         }
                         else if (bVisible && (Number(oField.fieldTypeId) == 18 || Number(oField.fieldTypeId) == 37)) {
@@ -924,6 +972,9 @@ sap.ui.define([
                                 alignItems: "Center",
                                 width: "100%"
                             });
+                            if (sFieldKey) {
+                                self._fieldVisibilityMap[sFieldKey].container = oHBox;
+                            }
                             aFormContent.push(oHBox);
                         }
                         else if (bVisible && Number(oField.fieldTypeId) == 42) {
@@ -948,6 +999,9 @@ sap.ui.define([
                                 alignItems: "Center",
                                 width: "100%"
                             });
+                            if (sFieldKey) {
+                                self._fieldVisibilityMap[sFieldKey].container = oHBox;
+                            }
                             aFormContent.push(oHBox);
                         }
                         else if (oUnitLink) {
@@ -960,6 +1014,9 @@ sap.ui.define([
                                 alignItems: "Center",
                                 width: "100%"
                             });
+                            if (sFieldKey) {
+                                self._fieldVisibilityMap[sFieldKey].container = oHBox;
+                            }
                             aFormContent.push(oHBox);
                         }
                         else
@@ -1575,18 +1632,50 @@ sap.ui.define([
 
             var self = this;
             var iVisibleFieldCount = 0;
+            var fnSetFieldVisible = function (sFieldKey, bVisible) {
+                var oTargets = self._fieldVisibilityMap && self._fieldVisibilityMap[sFieldKey];
+                if (oTargets) {
+                    if (oTargets.label) {
+                        oTargets.label.setVisible(bVisible);
+                    }
+                    if (oTargets.container) {
+                        oTargets.container.setVisible(bVisible);
+                    }
+                    return;
+                }
+
+                var oFallbackControl = self._fieldControlMap[sFieldKey];
+                if (oFallbackControl) {
+                    oFallbackControl.setVisible(bVisible);
+                }
+            };
+            var fnIsFieldVisible = function (sFieldKey) {
+                var oTargets = self._fieldVisibilityMap && self._fieldVisibilityMap[sFieldKey];
+                if (oTargets) {
+                    if (oTargets.container) {
+                        return oTargets.container.getVisible();
+                    }
+                    if (oTargets.label) {
+                        return oTargets.label.getVisible();
+                    }
+                }
+
+                var oFallbackControl = self._fieldControlMap[sFieldKey];
+                return !!(oFallbackControl && oFallbackControl.getVisible());
+            };
 
             oFormData.fields.forEach(function (oField) {
                 var sFieldKey = oField.fieldName || oField.name;
                 var oControl = self._fieldControlMap[sFieldKey];
+                var oVisibilityTargets = self._fieldVisibilityMap && self._fieldVisibilityMap[sFieldKey];
 
-                if (!oControl) {
+                if (!oControl && !oVisibilityTargets) {
                     return;
                 }
 
                 // Rule 1: If formVisible is false from metadata, field is HIDDEN
                 if (oField.formVisible === false) {
-                    oControl.setVisible(false);
+                    fnSetFieldVisible(sFieldKey, false);
                     return;
                 }
 
@@ -1594,7 +1683,7 @@ sap.ui.define([
                 // gridVisible, not by the parent table's validation updateStates.
                 // Keep them visible and skip the updateStates check.
                 if (oField._businessObjectName) {
-                    oControl.setVisible(true);
+                    fnSetFieldVisible(sFieldKey, true);
                     iVisibleFieldCount++;
                     return;
                 }
@@ -1632,7 +1721,7 @@ sap.ui.define([
                     bFieldVisible = true;
                 }
 
-                oControl.setVisible(bFieldVisible);
+                fnSetFieldVisible(sFieldKey, bFieldVisible);
                 if (bFieldVisible) {
                     iVisibleFieldCount++;
                 }
@@ -1648,8 +1737,7 @@ sap.ui.define([
                         oCategoryVisibility[sCat] = false;
                     }
                     var sFieldKey = oField.fieldName || oField.name;
-                    var oControl = self._fieldControlMap[sFieldKey];
-                    if (oControl && oControl.getVisible()) {
+                    if (fnIsFieldVisible(sFieldKey)) {
                         oCategoryVisibility[sCat] = true;
                     }
                 });
