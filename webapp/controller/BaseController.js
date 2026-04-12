@@ -374,6 +374,46 @@ sap.ui.define([
                 }.bind(this)
             });
         },
+        saveSessionState: function (sHash, aPayload) {
+            if (!sHash || !Array.isArray(aPayload) || aPayload.length === 0) {
+                return $.Deferred().resolve().promise();
+            }
+
+            return $.ajax({
+                url: this.isRunninglocally() + "/setting/?hash=" + encodeURIComponent(sHash),
+                method: "POST",
+                contentType: "application/json",
+                data: JSON.stringify(aPayload)
+            }).fail(function (xhr, sStatus, sError) {
+                console.warn("Failed to persist session state:", sStatus || sError);
+            });
+        },
+
+        loadSessionState: function (sHash, sCategory, sSubCategory) {
+            if (!sHash || !sCategory || !sSubCategory) {
+                return $.Deferred().resolve([]).promise();
+            }
+
+            return $.ajax({
+                url: this.isRunninglocally() + "/setting/" +
+                    encodeURIComponent(sCategory) + "/" +
+                    encodeURIComponent(sSubCategory) +
+                    "/?hash=" + encodeURIComponent(sHash),
+                method: "GET",
+                dataType: "json"
+            }).then(
+                function (response) {
+                    return Array.isArray(response) ? response
+                        : (Array.isArray(response && response.rows) ? response.rows : []);
+                },
+                function (xhr) {
+                    if (xhr && xhr.status !== 404) {
+                        console.warn("Failed to load session state: HTTP", xhr.status);
+                    }
+                    return [];
+                }
+            );
+        },
         getSapIcons: function () {
             // Only non-component type icons (actions, statuses, devices, etc.)
             return [

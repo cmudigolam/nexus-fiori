@@ -11,6 +11,7 @@ sap.ui.define([
             if (oRouter) {
                 oRouter.getRoute("Master").attachPatternMatched(this.onRouteMatched, this);
             }
+            this._masterSessionState = null;
             // Listen for breadcrumb selection events
             sap.ui.getCore().getEventBus().subscribe("Master", "FocusNodeFromBreadcrumb", this.focusNodeInTree, this);
             // Initialize duplicate tracker for performance optimization (ES5 compatible)
@@ -63,6 +64,7 @@ sap.ui.define([
         },
         onRouteMatched: function () {
             this.setBusyOn();
+            this._masterSessionState = null;
             this.getLocalDataModel().setProperty("/treeTable", []);
             this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
             this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
@@ -72,33 +74,36 @@ sap.ui.define([
             var self = this;
             this.getoHashToken().done(function (result) {
                 this.hash = result.hash;
-                // Load Traffic Light (Comp_Overlay) list
-                self._loadTrafficLightList(this.hash);
-                // Fetch Comp_Type to build CT_ID -> Name map
-                $.ajax({
-                    "url":  self.isRunninglocally()+ "/bo/Comp_Type/?pageSize=999",
-                    "method": "GET",
-                    "dataType": "json",
-                    "data": {
-                        "hash": this.hash
-                    },
-                    "success": function (response) {
-                        var aCompTypes = Array.isArray(response && response.rows) ? response.rows : [];
-                        aCompTypes.forEach(function (oType) {
-                            if (oType.CT_ID !== undefined && oType.CT_ID !== null) {
-                                // Convert CT_ID to string to ensure consistency with row CT_ID values
-                                var sCtId = String(oType.CT_ID);
-                                // Store the name or generate a display value from Type_Description if available
-                                var sName = oType.Name || oType.Type_Description || oType.Description || oType.TypeName || "";
-                                this._compTypeMap[sCtId] = sName;
-                            }
-                        }.bind(this));
-                        this._loadCompView();
-                    }.bind(this),
-                    "error": function () {
-                        // Continue loading even if Comp_Type fails
-                        this._loadCompView();
-                    }.bind(this)
+                self.loadSessionState(this.hash, "Tree", "Asset Location").always(function (aSettings) {
+                    self._masterSessionState = self._parseMasterSessionState(aSettings);
+                    // Load Traffic Light (Comp_Overlay) list
+                    self._loadTrafficLightList(self.hash);
+                    // Fetch Comp_Type to build CT_ID -> Name map
+                    $.ajax({
+                        "url":  self.isRunninglocally()+ "/bo/Comp_Type/?pageSize=999",
+                        "method": "GET",
+                        "dataType": "json",
+                        "data": {
+                            "hash": self.hash
+                        },
+                        "success": function (response) {
+                            var aCompTypes = Array.isArray(response && response.rows) ? response.rows : [];
+                            aCompTypes.forEach(function (oType) {
+                                if (oType.CT_ID !== undefined && oType.CT_ID !== null) {
+                                    // Convert CT_ID to string to ensure consistency with row CT_ID values
+                                    var sCtId = String(oType.CT_ID);
+                                    // Store the name or generate a display value from Type_Description if available
+                                    var sName = oType.Name || oType.Type_Description || oType.Description || oType.TypeName || "";
+                                    self._compTypeMap[sCtId] = sName;
+                                }
+                            });
+                            self._loadCompView();
+                        },
+                        "error": function () {
+                            // Continue loading even if Comp_Type fails
+                            self._loadCompView();
+                        }
+                    });
                 });
             }.bind(this));
         },
@@ -149,7 +154,6 @@ sap.ui.define([
             // Collect all currently loaded component IDs
             var aIds = [];
             self._collectComponentIds(aTree, aIds);
-            console.log("[TL] _fetchTrafficLightColors: collected IDs =", aIds);
 
             if (!aIds.length) {
                 return;
@@ -196,7 +200,6 @@ sap.ui.define([
                             }
                         });
                         self._trafficLightColorMap = oColorMap;
-                        console.log("[TL] _fetchTrafficLightColors: colorMap after merge =", JSON.stringify(oColorMap));
                         oLocalDataModel.setProperty("/trafficLightColumnVisible", true);
                         // Bump version so ALL formatTrafficDot formatters re-run
                         // and read the freshly updated _trafficLightColorMap.
@@ -312,10 +315,16 @@ sap.ui.define([
                     if (aTreeList.length > 0) {
                         // Preserve previously selected asset if it still exists in the list
                         var sPreviousKey = this.getLocalDataModel().getProperty("/selectedNode");
+                        var sSessionKey = this._masterSessionState && this._masterSessionState.activeView;
                         var oSelectedNode = null;
-                        if (sPreviousKey) {
+                        if (sSessionKey) {
                             oSelectedNode = aTreeList.find(function (oItem) {
-                                return oItem.CV_ID === sPreviousKey;
+                                return String(oItem.CV_ID) === String(sSessionKey);
+                            });
+                        }
+                        if (!oSelectedNode && sPreviousKey) {
+                            oSelectedNode = aTreeList.find(function (oItem) {
+                                return String(oItem.CV_ID) === String(sPreviousKey);
                             });
                         }
                         if (!oSelectedNode) {
@@ -348,6 +357,7 @@ sap.ui.define([
             var sPath = oContext.getPath();
             var oSelectedNode = this.getLocalDataModel().getProperty(sPath);
             this._loadRootNodes(oSelectedNode);
+            this._persistMasterTreeState(null, oSelectedNode && oSelectedNode.CV_ID);
         },
 
         focusNodeInTree: function (sChannel, sEvent, oData) {
@@ -397,49 +407,225 @@ sap.ui.define([
             return oMap;
         },
 
-        _expandPathToNode: function(sTargetFullLocation, oTreeTable) {
+        _areChildRowsLoaded: function (oNode) {
+            return !!(oNode && oNode.rows && oNode.rows.length > 0 && oNode.rows[0] && oNode.rows[0].VN_ID);
+        },
+
+        _mapTreeRows: function (aRows) {
+            var aMissingAssetTypes = [];
+            var aMappedRows = (aRows || []).map(function (oRow) {
+                var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
+                var bHasChild = oRow.Has_Children === true;
+                var aChildRows = bHasChild ? [{ rows: [] }] : [];
+                var sCtId = String(oRow.CT_ID || "");
+                var sAssetType = this._compTypeMap[sCtId] || sCtId;
+                if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
+                    aMissingAssetTypes.push(sCtId);
+                }
+                var vCompId = oRow.Component_ID;
+                if (vCompId !== null && vCompId !== undefined && typeof vCompId === "object" && "value" in vCompId) { vCompId = vCompId.value; }
+                var oMappedRow = Object.assign({}, oRow, {
+                    Name: sAssetName,
+                    AssetType: sAssetType,
+                    Has_Children: bHasChild,
+                    rows: aChildRows,
+                    trafficLightDot: "",
+                    Component_ID: vCompId
+                });
+                this._normalizeFullLocation(oMappedRow);
+                return oMappedRow;
+            }.bind(this));
+
+            aMappedRows.sort(function(a, b) {
+                var nameA = (a.Name || "").toLowerCase();
+                var nameB = (b.Name || "").toLowerCase();
+                if (nameA < nameB) return -1;
+                if (nameA > nameB) return 1;
+                return 0;
+            });
+
+            if (aMissingAssetTypes.length > 0) {
+                console.warn("Asset types missing names: ", aMissingAssetTypes);
+            }
+
+            return aMappedRows;
+        },
+
+        _loadChildNodes: function (oSelectedRow, sPath, fnAfterLoad) {
+            var self = this;
+            if (!oSelectedRow || !oSelectedRow.Has_Children || !sPath) {
+                if (typeof fnAfterLoad === "function") {
+                    fnAfterLoad([]);
+                }
+                return;
+            }
+
+            var sCvId = oSelectedRow.CV_ID;
+            var sRootVnId = oSelectedRow.VN_ID;
+
+            this.addNodeToInfoArr(oSelectedRow);
+            this.setBusyOn();
+            $.ajax({
+                "url": self.isRunninglocally()+ "/bo/View_Node/",
+                "method": "GET",
+                "dataType": "json",
+                "headers": {
+                    "X-NEXUS-Filter": '{"where":[{"field":"CV_ID","method":"eq","value":"' + sCvId + '"}, {"field":"Link_ID","value":' + sRootVnId + '}]}'
+                },
+                "data": {
+                    "hash": this.hash
+                },
+                "success": function (response) {
+                    var aRows = this._mapTreeRows(Array.isArray(response && response.rows) ? response.rows : []);
+                    aRows.forEach(function(oRow) {
+                        this.addNodeToInfoArr(oRow);
+                    }.bind(this));
+
+                    var oLocalDataModel = self.getLocalDataModel();
+                    var sSelectedKey = oLocalDataModel.getProperty("/selectedTrafficLight");
+                    oLocalDataModel.setProperty(sPath, aRows);
+                    self.setBusyOff();
+
+                    if (sSelectedKey) {
+                        self._fetchAndMergeChildColors(sSelectedKey, aRows);
+                    } else {
+                        oLocalDataModel.refresh(true);
+                    }
+
+                    if (typeof fnAfterLoad === "function") {
+                        fnAfterLoad(aRows);
+                    }
+                }.bind(this),
+                "error": function () {
+                    MessageBox.error(this.getResourceBundle().getText("msgErrorFetchingChildNodes"));
+                    this.setBusyOff();
+                }.bind(this)
+            });
+        },
+
+        _expandPathToNode: function(sTargetFullLocation, oTreeTable, fnAfterSelect) {
             if (!oTreeTable) {
                 oTreeTable = this.byId("TreeTableBasic");
                 if (!oTreeTable) return;
             }
-            
-            // Get path segments using shared utility method from BaseController
+            if (!sTargetFullLocation) {
+                return;
+            }
+
+            var self = this;
             var aPathSegments = this._getPathSegments(sTargetFullLocation);
-            var aRows = oTreeTable.getRows();
-            var oRowIndexMap = this._buildRowIndexMap(oTreeTable);
-            
-            // Pre-compute ancestor paths to avoid repeated slice() calls in loop
+            if (!aPathSegments || aPathSegments.length === 0) {
+                return;
+            }
+
             var aAncestorPaths = [];
             for (var j = 0; j < aPathSegments.length - 1; j++) {
                 aAncestorPaths.push(aPathSegments.slice(0, j + 1).join(" / "));
             }
-            
-            // Use pre-computed paths
-            for (var i = 0; i < aAncestorPaths.length; i++) {
-                var sAncestorPath = aAncestorPaths[i];
-                
-                if (oRowIndexMap.hasOwnProperty(sAncestorPath)) {
-                    var iAncestorIndex = oRowIndexMap[sAncestorPath];
-                    var oAncestorData = aRows[iAncestorIndex].getBindingContext("LocalDataModel").getObject();
-                    
-                    if (oAncestorData.Has_Children && !oTreeTable.isExpanded(iAncestorIndex)) {
-                        oTreeTable.expand(iAncestorIndex);
+
+            var iMaxRetries = 25;
+
+            var fnSelectIfVisible = function () {
+                var oMap = self._buildRowIndexMap(oTreeTable);
+                if (oMap.hasOwnProperty(sTargetFullLocation)) {
+                    var iTargetIndex = oMap[sTargetFullLocation];
+                    oTreeTable.setSelectedIndex(iTargetIndex);
+                    if (typeof fnAfterSelect === "function") {
+                        var oTargetContext = oTreeTable.getContextByIndex(iTargetIndex);
+                        var oTargetRow = oTargetContext ? oTargetContext.getProperty(oTargetContext.getPath()) : null;
+                        fnAfterSelect(oTargetRow, iTargetIndex);
                     }
+                    return true;
+                }
+                return false;
+            };
+
+            var fnExpandAncestorAt = function (iAncestorPos, iRetry) {
+                if (fnSelectIfVisible()) {
+                    return;
+                }
+
+                if (iAncestorPos >= aAncestorPaths.length) {
+                    return;
+                }
+
+                var sAncestorPath = aAncestorPaths[iAncestorPos];
+                var oRowIndexMap = self._buildRowIndexMap(oTreeTable);
+                if (!oRowIndexMap.hasOwnProperty(sAncestorPath)) {
+                    if (iRetry < iMaxRetries) {
+                        setTimeout(function () {
+                            fnExpandAncestorAt(iAncestorPos, iRetry + 1);
+                        }, 120);
+                    }
+                    return;
+                }
+
+                var iAncestorIndex = oRowIndexMap[sAncestorPath];
+                var oAncestorContext = oTreeTable.getContextByIndex(iAncestorIndex);
+                var oAncestorData = oAncestorContext ? oAncestorContext.getProperty(oAncestorContext.getPath()) : null;
+                var fnExpandAncestor = function () {
+                    var oUpdatedMap = self._buildRowIndexMap(oTreeTable);
+                    if (!oUpdatedMap.hasOwnProperty(sAncestorPath)) {
+                        fnExpandAncestorAt(iAncestorPos, iRetry + 1);
+                        return;
+                    }
+                    var iUpdatedIndex = oUpdatedMap[sAncestorPath];
+                    if (!oTreeTable.isExpanded(iUpdatedIndex)) {
+                        var fnAfterRowsUpdated = function () {
+                            oTreeTable.detachEvent("rowsUpdated", fnAfterRowsUpdated);
+                            fnExpandAncestorAt(iAncestorPos + 1, 0);
+                        };
+                        oTreeTable.attachEvent("rowsUpdated", fnAfterRowsUpdated);
+                        oTreeTable.expand(iUpdatedIndex);
+                        return;
+                    }
+                    fnExpandAncestorAt(iAncestorPos + 1, 0);
+                };
+
+                if (oAncestorData && oAncestorData.Has_Children && !self._areChildRowsLoaded(oAncestorData)) {
+                    self._loadChildNodes(oAncestorData, oAncestorContext.getPath() + "/rows", fnExpandAncestor);
+                    return;
+                }
+
+                fnExpandAncestor();
+            };
+
+            fnExpandAncestorAt(0, 0);
+        },
+
+        _selectRowByIndex: function (oTreeTable, iIndex) {
+            oTreeTable.setSelectedIndex(iIndex);
+            var oContext = oTreeTable.getContextByIndex(iIndex);
+            if (oContext) {
+                var oRow = oContext.getProperty(oContext.getPath());
+                if (oRow && oRow.CT_ID) {
+                    this._applySelectedRowState(oRow, false);
                 }
             }
-            
-            var self = this;
-            // Capture the row index map in closure to avoid rebuilding it
-            var fnSelectNode = function() {
-                oTreeTable.detachEvent("rowsUpdated", fnSelectNode);
-                // Rebuild map only because rows actually changed from expand() calls
-                var oUpdatedMap = self._buildRowIndexMap(oTreeTable);
-                if (oUpdatedMap.hasOwnProperty(sTargetFullLocation)) {
-                    var iTargetIndex = oUpdatedMap[sTargetFullLocation];
-                    oTreeTable.setSelectedIndex(iTargetIndex);
-                }
-            };
-            oTreeTable.attachEvent("rowsUpdated", fnSelectNode);
+        },
+
+        _restoreInitialTreeSelection: function (oTreeTable, aRows) {
+            if (!oTreeTable || !Array.isArray(aRows) || aRows.length === 0) {
+                return;
+            }
+
+            var iInitialIndex = this._getInitialSelectedRowIndex(aRows);
+            if (iInitialIndex > -1) {
+                this._selectRowByIndex(oTreeTable, iInitialIndex);
+                return;
+            }
+
+            var sFocusedPath = this._masterSessionState && this._masterSessionState.focusedPath;
+            if (sFocusedPath) {
+                this._expandPathToNode(sFocusedPath, oTreeTable, function (oTargetRow) {
+                    if (oTargetRow && oTargetRow.CT_ID) {
+                        this._applySelectedRowState(oTargetRow, false);
+                    }
+                }.bind(this));
+                return;
+            }
+
+            this._selectRowByIndex(oTreeTable, 0);
         },
 
         _loadRootNodes: function (oSelectedNode) {
@@ -448,9 +634,7 @@ sap.ui.define([
             }
             var self = this;
             this.getLocalDataModel().setProperty("/selectedNodeData", oSelectedNode || null);
-            //this._mergeParentIfMissing(oSelectedNode);
             this.setBusyOn();
-            // roote api call
             $.ajax({
                 "url":  self.isRunninglocally()+ "/bo/View_Node/",
                 "method": "GET",
@@ -463,39 +647,7 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-                    var aMissingAssetTypes = [];
-                    aRows = aRows.map(function (oRow) {
-                        var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
-                        var bHasChild = oRow.Has_Children === true;
-                        var aChildRows = bHasChild ? [{ rows: [] }] : [];
-                        var sCtId = String(oRow.CT_ID || "");
-                        var sAssetType = this._compTypeMap[sCtId] || sCtId;
-                        // Track missing asset types for debugging
-                        if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
-                            aMissingAssetTypes.push(sCtId);
-                        }
-                        // Unwrap {value: ...} wrapper on Component_ID so downstream lookups work
-                        var vCompId = oRow.Component_ID;
-                        if (vCompId !== null && vCompId !== undefined && typeof vCompId === "object" && "value" in vCompId) { vCompId = vCompId.value; }
-                        var oMappedRow = Object.assign({}, oRow, {
-                            Name: sAssetName,
-                            AssetType: sAssetType,
-                            Has_Children: bHasChild,
-                            rows: aChildRows,
-                            trafficLightDot: "",
-                            Component_ID: vCompId
-                        });
-                        this._normalizeFullLocation(oMappedRow);
-                        return oMappedRow;
-                    }.bind(this));
-                    // Sort rows by Name in ascending order
-                    aRows.sort(function(a, b) {
-                        var nameA = (a.Name || "").toLowerCase();
-                        var nameB = (b.Name || "").toLowerCase();
-                        if (nameA < nameB) return -1;
-                        if (nameA > nameB) return 1;
-                        return 0;
-                    });
+                    aRows = this._mapTreeRows(aRows);
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
 
                     // If a traffic light overlay is selected, check the web API response for TrafficLight
@@ -519,30 +671,7 @@ sap.ui.define([
                     if (oTreeTable) {
                         oTreeTable.attachEventOnce("rowsUpdated", function () {
                             oTreeTable.collapseAll();
-                            // Auto-select the first row ONLY on initial load (when treeTable was empty)
-                            if (aRows && aRows.length > 0 && this.getLocalDataModel().getProperty("/treeTable").length === aRows.length) {
-                                oTreeTable.setSelectedIndex(0);
-                                // Trigger row selection manually to load tiles
-                                var oFirstRowContext = oTreeTable.getContextByIndex(0);
-                                if (oFirstRowContext) {
-                                    var oFirstRow = oFirstRowContext.getProperty(oFirstRowContext.getPath());
-                                    if (oFirstRow && oFirstRow.CT_ID) {
-                                        var sCtId = oFirstRow.CT_ID;
-                                        var sComponentID = oFirstRow.Component_ID;
-                                        var oLocalDataModel = this.getLocalDataModel();
-                                        oLocalDataModel.setProperty("/selectedNodeData", oFirstRow);
-                                        oLocalDataModel.setProperty("/sCompoonentID", sComponentID);
-                                        var sVnId = oFirstRow.VN_ID;
-                                        if (sVnId) {
-                                            oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + sVnId);
-                                        }
-                                        // Fetch and load tiles for the first row
-                                        this.fetchDetailTiles(sCtId, sComponentID, this.hash);
-                                        // Publish event to update breadcrumbs
-                                        sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
-                                    }
-                                }
-                            }
+                            this._restoreInitialTreeSelection(oTreeTable, aRows);
                         }.bind(this));
                     }
                     this.setBusyOff();
@@ -569,6 +698,14 @@ sap.ui.define([
                 return;
             }
 
+            this._applySelectedRowState(oSelectedRow, true);
+        },
+
+        _applySelectedRowState: function (oSelectedRow, bPersistSelection) {
+            if (!oSelectedRow || !oSelectedRow.CT_ID) {
+                return;
+            }
+
             // Update selectedNodeData to the selected row
             var oLocalDataModel = this.getLocalDataModel();
             oLocalDataModel.setProperty("/selectedNodeData", oSelectedRow);
@@ -591,10 +728,98 @@ sap.ui.define([
             this.fetchDetailTiles(sCtId, sCompoonentID, this.hash);
             // Publish event to update breadcrumbs in Detail controller only after row selection
             sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
+
+            if (bPersistSelection) {
+                this._persistMasterTreeState(oSelectedRow);
+            }
+        },
+
+        _parseMasterSessionState: function (aSettings) {
+            var oState = {};
+            (aSettings || []).forEach(function (oRow) {
+                if (oRow && oRow.identifier) {
+                    oState[oRow.identifier] = oRow.value !== undefined && oRow.value !== null ? String(oRow.value) : "";
+                }
+            });
+            return oState;
+        },
+
+        _getMasterRowPersistId: function (oRow) {
+            if (!oRow) {
+                return "";
+            }
+            var vId = oRow.VN_ID;
+            if (vId === undefined || vId === null || vId === "") {
+                vId = oRow.Component_ID;
+            }
+            if (vId === undefined || vId === null || vId === "") {
+                vId = oRow.ID;
+            }
+            return vId !== undefined && vId !== null ? String(vId) : "";
+        },
+
+        _getInitialSelectedRowIndex: function (aRows) {
+            var sFocusedId = this._masterSessionState && (this._masterSessionState.focusedRow || this._masterSessionState.selectedItems);
+            if (!sFocusedId || !Array.isArray(aRows) || aRows.length === 0) {
+                return -1;
+            }
+
+            var sTargetId = String(sFocusedId);
+            for (var i = 0; i < aRows.length; i++) {
+                if (this._getMasterRowPersistId(aRows[i]) === sTargetId) {
+                    return i;
+                }
+            }
+            return -1;
+        },
+
+        _persistMasterTreeState: function (oSelectedRow, sActiveViewOverride) {
+            var oLocalDataModel = this.getLocalDataModel();
+            var sActiveView = sActiveViewOverride || oLocalDataModel.getProperty("/selectedNode") || "";
+            var oRow = oSelectedRow || oLocalDataModel.getProperty("/selectedNodeData");
+            var sRowId = this._getMasterRowPersistId(oRow);
+            var sRowPath = this._getFullLocation(oRow) || "";
+
+            var aPayload = [
+                {
+                    category: "Tree",
+                    subCategory: "Asset Location",
+                    identifier: "activeView",
+                    value: String(sActiveView)
+                },
+                {
+                    category: "Tree",
+                    subCategory: "Asset Location",
+                    identifier: "focusedRow",
+                    value: sRowId
+                },
+                {
+                    category: "Tree",
+                    subCategory: "Asset Location",
+                    identifier: "selectedItems",
+                    value: sRowId
+                },
+                {
+                    category: "Tree",
+                    subCategory: "Asset Location",
+                    identifier: "focusedPath",
+                    value: sRowPath
+                }
+            ];
+
+            if (this.hash) {
+                this.saveSessionState(this.hash, aPayload);
+                return;
+            }
+
+            this.getoHashToken().done(function (result) {
+                if (result && result.hash) {
+                    this.hash = result.hash;
+                    this.saveSessionState(this.hash, aPayload);
+                }
+            }.bind(this));
         },
         onToggleOpenState: function (oEvent) {
-            var self = this;
-            var iRowIndex = oEvent.getParameter("rowIndex");
             var oContext = oEvent.getParameter("rowContext");
             var bExpanded = oEvent.getParameter("expanded");
             if (!bExpanded || !oContext) {
@@ -605,87 +830,12 @@ sap.ui.define([
                 return;
             }
             // Skip if children are already loaded
-            if (oSelectedRow.rows && oSelectedRow.rows.length > 0 && oSelectedRow.rows[0].VN_ID) {
+            if (this._areChildRowsLoaded(oSelectedRow)) {
                 return;
             }
-            var sCvId = oSelectedRow.CV_ID;
-            var sRootVnId = oSelectedRow.VN_ID;
             var sPath = oContext.getPath() + "/rows";
 
-            // Store full node object on expand, remove duplicates by GUID and full_location
-            this.addNodeToInfoArr(oSelectedRow);
-
-            this.setBusyOn();
-            $.ajax({
-                "url": self.isRunninglocally()+ "/bo/View_Node/",
-                "method": "GET",
-                "dataType": "json",
-                "headers": {
-                    "X-NEXUS-Filter": '{"where":[{"field":"CV_ID","method":"eq","value":"' + sCvId + '"}, {"field":"Link_ID","value":' + sRootVnId + '}]}'
-                },
-                "data": {
-                    "hash": this.hash
-                },
-                "success": function (response) {
-                    var aRows = Array.isArray(response && response.rows) ? response.rows : [];
-                    var aMissingAssetTypes = [];
-                    aRows = aRows.map(function (oRow) {
-                        var sAssetName = oRow.Name || oRow.Full_location || oRow.Full_Location || oRow.full_location || oRow.FullLocation || "";
-                        var bHasChild = oRow.Has_Children === true;
-                        var aChildRows = bHasChild ? [{ rows: [] }] : [];
-                        var sCtId = String(oRow.CT_ID || "");
-                        var sAssetType = this._compTypeMap[sCtId] || sCtId;
-                        // Track missing asset types for debugging
-                        if (sCtId && !this._compTypeMap[sCtId] && aMissingAssetTypes.indexOf(sCtId) === -1) {
-                            aMissingAssetTypes.push(sCtId);
-                        }
-                        // Unwrap {value: ...} wrapper on Component_ID so downstream lookups work
-                        var vCompId = oRow.Component_ID;
-                        if (vCompId !== null && vCompId !== undefined && typeof vCompId === "object" && "value" in vCompId) { vCompId = vCompId.value; }
-                        var oMappedRow = Object.assign({}, oRow, {
-                            Name: sAssetName,
-                            AssetType: sAssetType,
-                            Has_Children: bHasChild,
-                            rows: aChildRows,
-                            trafficLightDot: "",
-                            Component_ID: vCompId
-                        });
-                        this._normalizeFullLocation(oMappedRow);
-                        return oMappedRow;
-                    }.bind(this));
-                    if (aMissingAssetTypes.length > 0) {
-                        console.warn("Child - Asset types missing names: ", aMissingAssetTypes);
-                    }
-                    aRows.sort(function(a, b) {
-                        var nameA = (a.Name || "").toLowerCase();
-                        var nameB = (b.Name || "").toLowerCase();
-                        if (nameA < nameB) return -1;
-                        if (nameA > nameB) return 1;
-                        return 0;
-                    });
-                    aRows.forEach(function(oRow) {
-                        this.addNodeToInfoArr(oRow);
-                    }.bind(this));
-                    var oLocalDataModel = self.getLocalDataModel();
-                    var sSelectedKey = oLocalDataModel.getProperty("/selectedTrafficLight");
-
-                    // Put child rows into the model (triggers binding refresh).
-                    oLocalDataModel.setProperty(sPath, aRows);
-                    self.setBusyOff();
-
-                    if (sSelectedKey) {
-                        // Fetch new child colors from API; the success handler
-                        // bumps trafficLightVersion so formatters re-run.
-                        self._fetchAndMergeChildColors(sSelectedKey, aRows);
-                    } else {
-                        oLocalDataModel.refresh(true);
-                    }
-                }.bind(this),
-                "error": function (errorData) {
-                    MessageBox.error(this.getResourceBundle().getText("msgErrorFetchingChildNodes"));
-                    this.setBusyOff();
-                }.bind(this)
-            });
+            this._loadChildNodes(oSelectedRow, sPath);
         },
 
         /**
@@ -706,7 +856,6 @@ sap.ui.define([
             // Collect Component_IDs for the new children only
             var aNewIds = [];
             this._collectComponentIds(aNewChildRows, aNewIds);
-            console.log("[TL] _fetchAndMergeChildColors: new child IDs =", aNewIds);
             if (!aNewIds.length) { return; }
 
             // Build a Set-like lookup so we can filter the response to requested IDs only
@@ -758,8 +907,6 @@ sap.ui.define([
                         });
 
                         self._trafficLightColorMap = oColorMap;
-                        console.log("[TL] _fetchAndMergeChildColors: colorMap after merge =", JSON.stringify(oColorMap));
-
                         oLocalDataModel.setProperty("/trafficLightColumnVisible", true);
                         // Bump version so ALL formatTrafficDot formatters re-run
                         // and read the freshly updated _trafficLightColorMap.
