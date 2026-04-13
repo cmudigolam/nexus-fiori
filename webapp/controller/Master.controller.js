@@ -118,8 +118,25 @@ sap.ui.define([
                 "data": { "hash": sHash },
                 "success": function (response) {
                     var aList = Array.isArray(response && response.rows) ? response.rows : [];
+                    var sSavedTrafficLight = self._masterSessionState && self._masterSessionState.trafficLight;
+                    var sRestoredTrafficLight = "";
+                    if (sSavedTrafficLight && sSavedTrafficLight !== "-1") {
+                        var oMatch = aList.find(function (oItem) {
+                            return String(oItem.CO_ID) === String(sSavedTrafficLight);
+                        });
+                        if (oMatch) {
+                            sRestoredTrafficLight = String(oMatch.CO_ID);
+                        }
+                    }
                     self.getLocalDataModel().setProperty("/trafficLightList", aList);
-                    self.getLocalDataModel().setProperty("/selectedTrafficLight", "");
+                    self.getLocalDataModel().setProperty("/selectedTrafficLight", sRestoredTrafficLight);
+
+                    // Programmatic selectedKey update does not fire selectionChange,
+                    // so explicitly re-apply overlay colors when restoring a saved key.
+                    if (sRestoredTrafficLight) {
+                        self._trafficLightColorMap = null;
+                        self._fetchTrafficLightColors(sRestoredTrafficLight);
+                    }
                 },
                 "error": function () {
                     self.getLocalDataModel().setProperty("/trafficLightList", []);
@@ -140,6 +157,7 @@ sap.ui.define([
                 // Bump version so formatters re-run and produce hidden placeholders
                 var iVer = this.getLocalDataModel().getProperty("/trafficLightVersion") || 0;
                 this.getLocalDataModel().setProperty("/trafficLightVersion", iVer + 1);
+                this._persistMasterTreeState();
                 return;
             }
 
@@ -147,6 +165,7 @@ sap.ui.define([
             // into the new selection.  _fetchTrafficLightColors will rebuild from scratch.
             this._trafficLightColorMap = null;
             this._fetchTrafficLightColors(sKey);
+            this._persistMasterTreeState();
         },
 
         _fetchTrafficLightColors: function (sTrafficLightKey) {
@@ -836,9 +855,11 @@ sap.ui.define([
         _persistMasterTreeState: function (oSelectedRow, sActiveViewOverride) {
             var oLocalDataModel = this.getLocalDataModel();
             var sActiveView = sActiveViewOverride || oLocalDataModel.getProperty("/selectedNode") || "";
-            var oRow = oSelectedRow || oLocalDataModel.getProperty("/selectedNodeData");
-            var sRowId = this._getMasterRowPersistId(oRow);
-            var sRowPath = this._getFullLocation(oRow) || "";
+            var bAssetViewChangeOnly = !!sActiveViewOverride && !oSelectedRow;
+            var oRow = bAssetViewChangeOnly ? null : (oSelectedRow || oLocalDataModel.getProperty("/selectedNodeData"));
+            var sRowId = this._getMasterRowPersistId(oRow) || "-1";
+            var sRowPath = this._getFullLocation(oRow) || "-1";
+            var sTrafficLight = oLocalDataModel.getProperty("/selectedTrafficLight") || "-1";
 
             var aPayload = [
                 {
@@ -864,6 +885,12 @@ sap.ui.define([
                     subCategory: "Asset Location",
                     identifier: "focusedPath",
                     value: sRowPath
+                },
+                {
+                    category: "Tree",
+                    subCategory: "Asset Location",
+                    identifier: "trafficLight",
+                    value: String(sTrafficLight)
                 }
             ];
 
