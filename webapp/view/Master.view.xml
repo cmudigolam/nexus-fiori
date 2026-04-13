@@ -3,7 +3,7 @@
     xmlns:core="sap.ui.core"
 	xmlns:mvc="sap.ui.core.mvc"   xmlns:u="sap.ui.unified"
     xmlns:semantic="sap.f.semantic" xmlns:tree="sap.ui.table" xmlns:rm="sap.ui.table.rowmodes">
-    <f:DynamicPage id="dynamicPageId" toggleHeaderOnTitleClick="false" title="{i18n>assetTitle}" class="assetDynamicPage">
+    <f:DynamicPage id="dynamicPageId" toggleHeaderOnTitleClick="false" title="{i18n>assetTitle}" class="assetDynamicPage" showFooter="{LocalDataModel>/trafficLightFooterVisible}">
         <f:title>
             <f:DynamicPageTitle id="dynamicPageTitle">
                 <f:heading>
@@ -82,5 +82,10 @@
             </tree:TreeTable>
             </VBox>
         </f:content>
+        <f:footer>
+            <OverflowToolbar id="trafficLightLegendBar" style="Clear">
+                <Text text="Legend:" class="sapUiSmallMarginBegin" />
+            </OverflowToolbar>
+        </f:footer>
     </f:DynamicPage>
 </mvc:View>

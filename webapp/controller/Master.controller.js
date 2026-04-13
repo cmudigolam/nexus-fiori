@@ -69,6 +69,7 @@ sap.ui.define([
             this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
             this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
             this.getLocalDataModel().setProperty("/trafficLightVersion", 0);
+            this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
             this._trafficLightColorMap = null;
             this._compTypeMap = {};
             var self = this;
@@ -134,6 +135,8 @@ sap.ui.define([
                 // Cleared — hide column and reset color map
                 this._trafficLightColorMap = null;
                 this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
+                this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
+                this._updateLegendFooter();
                 // Bump version so formatters re-run and produce hidden placeholders
                 var iVer = this.getLocalDataModel().getProperty("/trafficLightVersion") || 0;
                 this.getLocalDataModel().setProperty("/trafficLightVersion", iVer + 1);
@@ -205,6 +208,7 @@ sap.ui.define([
                         // and read the freshly updated _trafficLightColorMap.
                         var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
                         oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
+                        self._updateLegendFooter();
                         self.setBusyOff();
                     },
                     "error": function () {
@@ -290,6 +294,62 @@ sap.ui.define([
                 return "Rolled up Risk (Colour Only): " + sLegend;
             }
             return "";
+        },
+
+        /**
+         * Rebuilds the floating footer legend bar from the current _trafficLightColorMap.
+         * Shows one colored dot + label per unique (color, legendName) pair found in the map.
+         */
+        _updateLegendFooter: function () {
+            var oToolbar = this.byId("trafficLightLegendBar");
+            if (!oToolbar) { return; }
+
+            // Remove all items except the static "Legend:" Text (first item)
+            var aContent = oToolbar.getContent();
+            for (var i = aContent.length - 1; i >= 1; i--) {
+                oToolbar.removeContent(aContent[i]);
+            }
+
+            var oMap = this._trafficLightColorMap || {};
+            var aUnique = [];
+            var oSeen = {};
+
+            Object.keys(oMap).forEach(function (sId) {
+                var oEntry = oMap[sId];
+                if (!oEntry || !oEntry.showDot || !oEntry.color) { return; }
+                var sKey = oEntry.color + "|" + (oEntry.legendName || "");
+                if (!oSeen[sKey]) {
+                    oSeen[sKey] = true;
+                    aUnique.push(oEntry);
+                }
+            });
+
+            // Sort by legendName for a consistent order
+            aUnique.sort(function (a, b) {
+                return (a.legendName || "").localeCompare(b.legendName || "");
+            });
+
+            if (!aUnique.length) {
+                this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
+                return;
+            }
+
+            aUnique.forEach(function (oEntry, iIdx) {
+                if (iIdx > 0) {
+                    oToolbar.addContent(new sap.m.ToolbarSeparator());
+                }
+                oToolbar.addContent(new sap.ui.core.Icon({
+                    src: "sap-icon://circle-task-2",
+                    size: "1rem",
+                    color: oEntry.color,
+                    useIconTooltip: false
+                }));
+                oToolbar.addContent(new sap.m.Text({
+                    text: oEntry.legendName || ""
+                }));
+            });
+
+            this.getLocalDataModel().setProperty("/trafficLightFooterVisible", true);
         },
 
         _tcolorToHex: function (tcolor) {
@@ -912,6 +972,7 @@ sap.ui.define([
                         // and read the freshly updated _trafficLightColorMap.
                         var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
                         oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
+                        self._updateLegendFooter();
                         self.setBusyOff();
                     },
                     "error": function () {

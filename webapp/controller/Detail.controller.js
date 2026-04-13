@@ -544,6 +544,7 @@ sap.ui.define([
             self._pendingLookupCount = 0;
             self._formDataTableName = sTableName;
             self._subTableControls = [];
+            self._nestedLookupFieldMap = {};
 
             var fnBuildAndOpen = function () {
                 self.buildFormContent(oFormData, oCategorizedFields);
@@ -577,7 +578,7 @@ sap.ui.define([
 
             // Find all fields that are foreign-table references
             var aForeignFields = aFields.filter(function (oField) {
-                return oField.fieldTypeId === 19 && oField.foreignTableId;
+                return oField.fieldTypeId === 19  && oField.foreignTableId;
             });
 
             if (aForeignFields.length === 0) {
@@ -1133,7 +1134,11 @@ sap.ui.define([
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
                     });
-                case 18: // Sub-table
+                case 18: // Nested lookup or sub-table
+                    if (oField.nestedField && oField.nestedField.lookupListId) {
+                        this._nestedLookupFieldMap = this._nestedLookupFieldMap || {};
+                        this._nestedLookupFieldMap[oField.fieldName] = oField.nestedField.lookupListId;
+                    }
                     return new sap.m.Input({
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
@@ -1221,6 +1226,58 @@ sap.ui.define([
                 if (sFetchedHash) {
                     fnFetch(sFetchedHash);
                 }
+            });
+        },
+        /**
+         * For every field registered in _nestedLookupFieldMap (fieldTypeId 18 whose
+         * nestedField carries a lookupListId), fetch the matching Lookup_Item record
+         * using the raw ID stored in oRecord and display its Value text on the control.
+         */
+        _resolveNestedLookupFields: function (oRecord, sHash) { // need to check
+            var self = this;
+            if (!this._nestedLookupFieldMap || !oRecord) {
+                return;
+            }
+            Object.keys(this._nestedLookupFieldMap).forEach(function (sFieldKey) {
+                var vFieldValue = oRecord[sFieldKey];
+                if (vFieldValue === undefined || vFieldValue === null || vFieldValue === "") {
+                    return;
+                }
+                $.ajax({
+                    "url": self.isRunninglocally() + "/bo/Lookup_Item/",
+                    "method": "GET",
+                    "dataType": "json",
+                    "headers": {
+                        "X-NEXUS-Filter": JSON.stringify({
+                            "where": [{ "field": "LI_ID", "method": "eq", "value": vFieldValue }]
+                        })
+                    },
+                    "data": {
+                        "hash": sHash
+                    },
+                    "success": function (response) {
+                        var aRows = Array.isArray(response && response.rows) ? response.rows
+                            : Array.isArray(response) ? response : [];
+                        var oControl = self._fieldControlMap && self._fieldControlMap[sFieldKey];
+                        if (!oControl || !oControl.isA("sap.m.Input")) {
+                            return;
+                        }
+                        if (aRows.length > 0) {
+                            var sDisplayValue = String(aRows[0].Value || aRows[0].Name || vFieldValue);
+                            oControl.setValue(sDisplayValue);
+                        } else {
+                            // Fallback: show raw value when no matching lookup item found
+                            oControl.setValue(String(vFieldValue));
+                        }
+                    },
+                    "error": function () {
+                        // Silent fallback – display raw stored value
+                        var oControl = self._fieldControlMap && self._fieldControlMap[sFieldKey];
+                        if (oControl && oControl.isA("sap.m.Input")) {
+                            oControl.setValue(String(vFieldValue));
+                        }
+                    }
+                });
             });
         },
         _loadSubTableColumns: function (oTable, sSubTableId, sFieldName) {
@@ -1542,6 +1599,8 @@ sap.ui.define([
                         } else if (Array.isArray(response) && response.length > 0) {
                             oRecord = response[0];
                         }
+                        // Resolve display text for fields with nestedField.lookupListId
+                        self._resolveNestedLookupFields(oRecord, sResolvedHash);
                         var sComponentId = oRecord && oRecord.Component_ID;
                         if (sComponentId) {
                             // Make validation POST call to check field visibility
