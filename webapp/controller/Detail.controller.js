@@ -545,6 +545,7 @@ sap.ui.define([
             self._formDataTableName = sTableName;
             self._subTableControls = [];
             self._nestedLookupFieldMap = {};
+            self._nestedForeignKeyFieldMap = {};
 
             var fnBuildAndOpen = function () {
                 self.buildFormContent(oFormData, oCategorizedFields);
@@ -1138,6 +1139,13 @@ sap.ui.define([
                     if (oField.nestedField && oField.nestedField.lookupListId) {
                         this._nestedLookupFieldMap = this._nestedLookupFieldMap || {};
                         this._nestedLookupFieldMap[oField.fieldName] = oField.nestedField.lookupListId;
+                    } else if (oField.nestedField && oField.nestedField.foreignTableId &&
+                               oField.nestedField.nestedField && oField.nestedField.nestedField.businessObjectName) {
+                        this._nestedForeignKeyFieldMap = this._nestedForeignKeyFieldMap || {};
+                        this._nestedForeignKeyFieldMap[oField.fieldName] = {
+                            businessObjectName: oField.nestedField.nestedField.businessObjectName,
+                            displayFieldName: oField.nestedField.nestedField.fieldName || "Name"
+                        };
                     }
                     return new sap.m.Input({
                         //placeholder: oField.name || oField.fieldName,
@@ -1279,6 +1287,44 @@ sap.ui.define([
                     }
                 });
             });
+
+            // Resolve fields backed by nestedField.foreignTableId + nestedField.nestedField.businessObjectName
+            // Calls /bo/{businessObjectName}/{value} and displays the nestedField.nestedField.fieldName value
+            if (this._nestedForeignKeyFieldMap) {
+                Object.keys(this._nestedForeignKeyFieldMap).forEach(function (sFieldKey) {
+                    var oFieldInfo = self._nestedForeignKeyFieldMap[sFieldKey];
+                    var vFieldValue = oRecord[sFieldKey];
+                    if (vFieldValue === undefined || vFieldValue === null || vFieldValue === "") {
+                        return;
+                    }
+                    $.ajax({
+                        "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(oFieldInfo.businessObjectName) + "/" + encodeURIComponent(vFieldValue),
+                        "method": "GET",
+                        "dataType": "json",
+                        "data": { "hash": sHash },
+                        "success": function (response) {
+                            var oRow = response;
+                            if (Array.isArray(response && response.rows) && response.rows.length > 0) {
+                                oRow = response.rows[0];
+                            } else if (Array.isArray(response) && response.length > 0) {
+                                oRow = response[0];
+                            }
+                            var oControl = self._fieldControlMap && self._fieldControlMap[sFieldKey];
+                            if (!oControl || !oControl.isA("sap.m.Input")) {
+                                return;
+                            }
+                            var sDisplayValue = oRow && (oRow[oFieldInfo.displayFieldName] || oRow.Name);
+                            oControl.setValue(sDisplayValue ? String(sDisplayValue) : String(vFieldValue));
+                        },
+                        "error": function () {
+                            var oControl = self._fieldControlMap && self._fieldControlMap[sFieldKey];
+                            if (oControl && oControl.isA("sap.m.Input")) {
+                                oControl.setValue(String(vFieldValue));
+                            }
+                        }
+                    });
+                });
+            }
         },
         _loadSubTableColumns: function (oTable, sSubTableId, sFieldName) {
             var oLocalDataModel = this.getLocalDataModel();
@@ -2587,7 +2633,15 @@ sap.ui.define([
                 }
 
                 if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
-                    oControl.setValue(String(vValue));
+                    var sDisplayValue = String(vValue);
+                    if (typeof vValue === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(vValue)) {
+                        var oParsedDate = new Date(vValue);
+                        if (!isNaN(oParsedDate.getTime())) {
+                            var aMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                            sDisplayValue = oParsedDate.getUTCDate() + " " + aMonths[oParsedDate.getUTCMonth()] + " " + oParsedDate.getUTCFullYear();
+                        }
+                    }
+                    oControl.setValue(sDisplayValue);
                     if (self._colourInputMap && self._colourInputMap[sFieldKey] && oControl.isA("sap.m.Input")) {
                         var sHex = self._tcolorToCssHex(Number(vValue));
                         if (sHex) {

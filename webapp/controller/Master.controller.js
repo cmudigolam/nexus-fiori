@@ -118,6 +118,8 @@ sap.ui.define([
                 "data": { "hash": sHash },
                 "success": function (response) {
                     var aList = Array.isArray(response && response.rows) ? response.rows : [];
+                    // Prepend an empty record so selecting it hides the T column and footer
+                    aList = [{ CO_ID: "", Name: "" }].concat(aList);
                     var sSavedTrafficLight = self._masterSessionState && self._masterSessionState.trafficLight;
                     var sRestoredTrafficLight = "";
                     if (sSavedTrafficLight && sSavedTrafficLight !== "-1") {
