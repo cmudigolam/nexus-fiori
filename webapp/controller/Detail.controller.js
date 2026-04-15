@@ -949,15 +949,15 @@ sap.ui.define([
                             }
                             aFormContent.push(oHBox);
                         }
-                        else if (bVisible && (Number(oField.fieldTypeId) == 18 || Number(oField.fieldTypeId) == 37)) {
-                            // Create ƒ(p) button for global table lookup fields
+                        else if (bVisible && Number(oField.fieldTypeId) == 18) {
+                            // Create ƒ(p) button for global table lookup fields (fieldTypeId 18 only)
                             var oGlobalBtn = new sap.m.Button({
                                 text: "ƒ(p)",
                                 press: self._onGlobalTableInfoPress.bind(self, oField)
                             });
                             oGlobalBtn.addStyleClass("italicButton");
 
-                            // Disable the form field for fieldTypeId 18/37 (value set via ƒ(p) lookup)
+                            // Disable the form field for fieldTypeId 18 (value set via ƒ(p) lookup)
                             oInput.setEnabled(false);
 
                             oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
@@ -1090,13 +1090,15 @@ sap.ui.define([
                 return oTable;
             }
 
-            // If field has a lookupListId, create a Select and load lookup items
+            // If field has a lookupListId, create a Select/ComboBox and load lookup items
             if (oField.lookupListId) {
                 this._pendingLookupCount++;
-                var oSelect = new sap.m.Select({
-                    //placeholder: oField.name || oField.fieldName,
-                    width: "100%"
-                });
+                var oSelect = Number(oField.fieldTypeId) === 37
+                    ? new sap.m.ComboBox({ width: "100%" })
+                    : new sap.m.Select({
+                        //placeholder: oField.name || oField.fieldName,
+                        width: "100%"
+                    });
                 this._loadLookupItems(oSelect, oField.lookupListId);
                 return oSelect;
             }
@@ -1123,12 +1125,10 @@ sap.ui.define([
                         growingMaxLines: 6,
                         width: "100%"
                     });
-                case 37: // Lookup/Dropdown field
-                    this._pendingLookupCount++;
-                    var oSelect = new sap.m.Select({
-                        //placeholder: oField.name || oField.fieldName
+                case 37: // Editable dropdown field (ComboBox)
+                    var oSelect = new sap.m.ComboBox({
+                        width: "100%"
                     });
-                    // Note: For fieldTypeId 37, lookupListId should be set separately
                     return oSelect;
                 case 40: // Sub-table
                     return new sap.m.Input({
@@ -2675,7 +2675,7 @@ sap.ui.define([
                     }
                 } else if (oControl.isA("sap.m.CheckBox")) {
                     oControl.setSelected(!!vValue);
-                } else if (oControl.isA("sap.m.Select")) {
+                } else if (oControl.isA("sap.m.Select") || oControl.isA("sap.m.ComboBox")) {
                     var sValueStr = String(vValue).trim();
 
                     // Store this value as pending - it will be applied after items load
@@ -2938,6 +2938,13 @@ sap.ui.define([
                             oPayload[sFieldKey] = sSelectedText;
                         } else if (sSelectedKey !== "" && sSelectedKey !== undefined) {
                             oPayload[sFieldKey] = sSelectedKey;
+                        }
+                    } else if (oControl.isA("sap.m.ComboBox")) {
+                        // ComboBox is editable — prefer selected item text, fall back to typed value
+                        var oComboItem = oControl.getSelectedItem();
+                        var sComboValue = oComboItem ? oComboItem.getText() : oControl.getValue();
+                        if (sComboValue !== "" && sComboValue !== undefined) {
+                            oPayload[sFieldKey] = sComboValue;
                         }
                     }
                 });
