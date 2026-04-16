@@ -43,7 +43,6 @@
                 <tree:TreeTable
                     id="TreeTableBasic"
                     class="assetTreeTable"
-                    visibleRowCountMode="Fixed"
                     visibleRowCount="20"
                     rows="{path:'LocalDataModel>/treeTable', parameters:{arrayNames:['rows']}}"
                     alternateRowColors="true"

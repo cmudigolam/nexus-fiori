@@ -2017,35 +2017,57 @@ sap.ui.define([
         },
 
         /**
-         * For a field's unitId, find the matching Unit_Type (by Ref_Unit_ID),
-         * then find the reference Unit (by UT_ID) to get the Symbol.
-         * Returns { symbol, utId, refUnit } or null.
+         * For a field's unitId, find the matching Unit by Unit_ID,
+         * then find the Unit_Type by UT_ID to get the type info and reference symbol.
+         * Returns { symbol, utId, refUnit, unitTypeName } or null.
          */
         _getUnitInfoForField: function (iUnitId) {
             if (!iUnitId) { return null; }
             var iId = Number(iUnitId);
 
-            // Find Unit_Type where Ref_Unit_ID === unitId
-            var oUnitType = null;
-            for (var i = 0; i < this._aUnitTypeData.length; i++) {
-                if (Number(this._aUnitTypeData[i].Ref_Unit_ID) === iId) {
-                    oUnitType = this._aUnitTypeData[i];
+            // Find the Unit record directly by Unit_ID
+            var oMatchedUnit = null;
+            for (var j = 0; j < this._aUnitData.length; j++) {
+                if (Number(this._aUnitData[j].Unit_ID) === iId) {
+                    oMatchedUnit = this._aUnitData[j];
                     break;
+                }
+            }
+
+            // Find Unit_Type by UT_ID from the matched unit, or fall back to Ref_Unit_ID lookup
+            var oUnitType = null;
+            if (oMatchedUnit && oMatchedUnit.UT_ID) {
+                var iUtId = Number(oMatchedUnit.UT_ID);
+                for (var i = 0; i < this._aUnitTypeData.length; i++) {
+                    if (Number(this._aUnitTypeData[i].UT_ID) === iUtId) {
+                        oUnitType = this._aUnitTypeData[i];
+                        break;
+                    }
+                }
+            }
+            if (!oUnitType) {
+                // Fall back: find Unit_Type where Ref_Unit_ID === unitId
+                for (var k = 0; k < this._aUnitTypeData.length; k++) {
+                    if (Number(this._aUnitTypeData[k].Ref_Unit_ID) === iId) {
+                        oUnitType = this._aUnitTypeData[k];
+                        break;
+                    }
                 }
             }
             if (!oUnitType) { return null; }
 
-            // Find the reference Unit in Unit data where Unit_ID === Ref_Unit_ID
+            // Find the reference Unit for this type (Ref_Unit_ID from Unit_Type)
             var oRefUnit = null;
-            for (var j = 0; j < this._aUnitData.length; j++) {
-                if (Number(this._aUnitData[j].Unit_ID) === iId) {
-                    oRefUnit = this._aUnitData[j];
+            var iRefUnitId = Number(oUnitType.Ref_Unit_ID);
+            for (var m = 0; m < this._aUnitData.length; m++) {
+                if (Number(this._aUnitData[m].Unit_ID) === iRefUnitId) {
+                    oRefUnit = this._aUnitData[m];
                     break;
                 }
             }
 
             return {
-                symbol: oRefUnit ? oRefUnit.Symbol : (oUnitType.Reference_Symbol || ""),
+                symbol: oMatchedUnit ? oMatchedUnit.Symbol : (oRefUnit ? oRefUnit.Symbol : (oUnitType.Reference_Symbol || "")),
                 utId: oUnitType.UT_ID,
                 refUnit: oRefUnit,
                 unitTypeName: oUnitType.Name
@@ -2138,7 +2160,7 @@ sap.ui.define([
                 var fGradient = parseFloat(oUnit.Gradient) || 1;
                 var fConstant = parseFloat(oUnit.Constant) || 0;
                 var fConverted = vRefValue * fGradient + fConstant;
-                var iDecimals = (oUnit.Decimals !== undefined && oUnit.Decimals !== null) ? Number(oUnit.Decimals) : 2;
+                var iDecimals = (oUnit.Decimals !== undefined && oUnit.Decimals !== null) ? Number(oUnit.Decimals) : 5;
                 var sConverted = fConverted.toFixed(iDecimals);
                 return {
                     name: oUnit.Name,
@@ -2233,7 +2255,7 @@ sap.ui.define([
             // Default (reference) unit value
             if (oUnitInfo.refUnit) {
                 var sRefSymbol = oUnitInfo.refUnit.Symbol || oUnitInfo.refUnit.Name || "";
-                var iRefDecimals = (oUnitInfo.refUnit.Decimals !== undefined && oUnitInfo.refUnit.Decimals !== null) ? Number(oUnitInfo.refUnit.Decimals) : 2;
+                var iRefDecimals = (oUnitInfo.refUnit.Decimals !== undefined && oUnitInfo.refUnit.Decimals !== null) ? Number(oUnitInfo.refUnit.Decimals) : 5;
                 var sRefFormatted = vRefValue.toFixed(iRefDecimals);
                 aInfoContent.push(new sap.m.Label({ text: "Default:", design: "Bold" }));
                 aInfoContent.push(new sap.m.Text({ text: sRefFormatted + " " + sRefSymbol }));
@@ -2639,6 +2661,24 @@ sap.ui.define([
                         if (!isNaN(oParsedDate.getTime())) {
                             var aMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                             sDisplayValue = oParsedDate.getUTCDate() + " " + aMonths[oParsedDate.getUTCMonth()] + " " + oParsedDate.getUTCFullYear();
+                        }
+                    }
+                    // Convert value to preferred unit if a preferred unit conversion exists,
+                    // and always apply the unit's Decimals formatting when a unit is present
+                    var oUnitFieldInfo = self._unitFieldInfo && self._unitFieldInfo[sFieldKey];
+                    if (oUnitFieldInfo) {
+                        var fRawValue = parseFloat(vValue);
+                        if (!isNaN(fRawValue)) {
+                            var fGradient = oUnitFieldInfo.currentGradient || 1;
+                            var fConstant = oUnitFieldInfo.currentConstant || 0;
+                            var fConverted = fRawValue * fGradient + fConstant;
+                            // Get decimals from the current (preferred or default) unit
+                            var oDisplayUnit = self._aUnitData && self._aUnitData.find(function (oU) {
+                                return oU.Symbol === oUnitFieldInfo.currentSymbol;
+                            });
+                            var iDecimals = (oDisplayUnit && oDisplayUnit.Decimals !== undefined && oDisplayUnit.Decimals !== null)
+                                ? Number(oDisplayUnit.Decimals) : 5;
+                            sDisplayValue = fConverted.toFixed(iDecimals);
                         }
                     }
                     oControl.setValue(sDisplayValue);

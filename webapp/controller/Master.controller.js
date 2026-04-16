@@ -49,24 +49,12 @@ sap.ui.define([
             }
         },
         onAfterRendering: function () {
-            var oTable = this.getView().byId("TreeTableBasic");
-            if (oTable) {
-                // Calculate visible rows based on available container height
-                var oTableDom = oTable.getDomRef();
-                if (oTableDom) {
-                    var iContainerHeight = oTableDom.parentElement.offsetHeight;
-                    var iRowHeight = 28; // Approximate row height in pixels
-                    var iHeaderHeight = 80; // Approximate header/toolbar height
-                    var iCalculatedRows = Math.max(10, Math.floor((iContainerHeight - iHeaderHeight) / iRowHeight));
-                    oTable.setVisibleRowCount(iCalculatedRows);
-                }
-            }
         },
         onRouteMatched: function () {
             this.setBusyOn();
             this._masterSessionState = null;
             this.getLocalDataModel().setProperty("/treeTable", []);
-            this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
+            //this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
             this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
             this.getLocalDataModel().setProperty("/trafficLightVersion", 0);
             this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
