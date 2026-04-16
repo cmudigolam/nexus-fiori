@@ -43,7 +43,6 @@
                 <tree:TreeTable
                     id="TreeTableBasic"
                     class="assetTreeTable"
-                    visibleRowCount="20"
                     rows="{path:'LocalDataModel>/treeTable', parameters:{arrayNames:['rows']}}"
                     alternateRowColors="true"
                     noData="{i18n>msgSelectAssetToView}"
@@ -53,6 +52,9 @@
                     toggleOpenState="onToggleOpenState"
                     enableSelectAll="false"
                     ariaLabelledBy="pageTitle">
+                <tree:rowMode>
+                    <rm:Fixed rowCount="{LocalDataModel>/treeTableVisibleRows}" />
+                </tree:rowMode>
                 <tree:columns>
                     <tree:Column id="colCategories" width="55%">
                         <Label id="lblCategories" text="{i18n>lblAssetName}"/>

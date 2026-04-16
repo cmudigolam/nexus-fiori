@@ -35,6 +35,10 @@ sap.ui.define([
             if (oLocalDataModel && this._fnPropertyChangeListener) {
                 oLocalDataModel.detachPropertyChange(this._fnPropertyChangeListener);
             }
+            if (this._fnResizeHandler) {
+                window.removeEventListener("resize", this._fnResizeHandler);
+                this._fnResizeHandler = null;
+            }
         },
         
         /**
@@ -49,12 +53,33 @@ sap.ui.define([
             }
         },
         onAfterRendering: function () {
+            this._adjustTreeTableRows();
+            if (!this._fnResizeHandler) {
+                this._fnResizeHandler = this._adjustTreeTableRows.bind(this);
+                window.addEventListener("resize", this._fnResizeHandler);
+            }
+        },
+
+        _adjustTreeTableRows: function () {
+            var oTable = this.byId("TreeTableBasic");
+            if (!oTable) return;
+            var oTableDom = oTable.getDomRef();
+            // Estimate available height: window height minus table's top offset minus some padding for footer/margins
+            var iTopOffset = oTableDom ? oTableDom.getBoundingClientRect().top : 200;
+            var iAvailable = window.innerHeight - iTopOffset - 40;
+            // Each row is ~33px (compact mode default row height)
+            var iRowHeight = 33;
+            // Subtract header row height (~33px)
+            var iRows = Math.max(5, Math.floor((iAvailable - iRowHeight) / iRowHeight));
+            this.getLocalDataModel().setProperty("/treeTableVisibleRows", iRows);
         },
         onRouteMatched: function () {
             this.setBusyOn();
             this._masterSessionState = null;
             this.getLocalDataModel().setProperty("/treeTable", []);
-            //this.getLocalDataModel().setProperty("/treeTableMinRows", 15);
+            // Calculate initial visible rows based on window height
+            var iRows = Math.max(5, Math.floor((window.innerHeight - 240) / 33));
+            this.getLocalDataModel().setProperty("/treeTableVisibleRows", iRows);
             this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
             this.getLocalDataModel().setProperty("/trafficLightVersion", 0);
             this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);

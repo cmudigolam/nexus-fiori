@@ -18,27 +18,11 @@
 
 .assetDynamicPage {
     height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden !important;
-}
-
-.assetDynamicPage .sapFDynamicPageContentWrapper {
-    overflow: hidden !important;
-}
-
-.assetDynamicPage .sapFDynamicPageContent {
-    overflow: hidden !important;
-    height: 100%;
 }
 
 .assetMasterContent {
-    height: 100% !important;
     width: 100%;
     padding: 0.25rem;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden !important;
 }
 
 .assetMasterToolbar {
@@ -48,7 +32,6 @@
 
 .assetTreeTable {
     border-radius: 0.5rem;
-    flex: 0 0 auto;
     width: 100%;
 }
 
