@@ -193,6 +193,8 @@ sap.ui.define([
             self._collectComponentIds(aTree, aIds);
 
             if (!aIds.length) {
+                // No component IDs loaded yet; ensure any pending busy state is cleared.
+                self.setBusyOff();
                 return;
             }
 
@@ -698,6 +700,59 @@ sap.ui.define([
             }
         },
 
+        _resolveFocusedPathByVnId: function (sFocusedId, fnDone) {
+            if (!sFocusedId || sFocusedId === "-1") {
+                if (typeof fnDone === "function") {
+                    fnDone("");
+                }
+                return;
+            }
+
+            var self = this;
+            var fnCall = function (sHash) {
+                $.ajax({
+                    "url": self.isRunninglocally() + "/bo/View_Node/",
+                    "method": "GET",
+                    "dataType": "json",
+                    "headers": {
+                        "X-NEXUS-Filter": '{"where":[{"field":"VN_ID","method":"eq","value":"' + String(sFocusedId) + '"}]}'
+                    },
+                    "data": {
+                        "hash": sHash
+                    },
+                    "success": function (response) {
+                        var aRows = Array.isArray(response && response.rows) ? response.rows : [];
+                        var oRow = aRows.length > 0 ? aRows[0] : null;
+                        var sFullLocation = self._getFullLocation(oRow) || "";
+                        if (typeof fnDone === "function") {
+                            fnDone(sFullLocation);
+                        }
+                    },
+                    "error": function () {
+                        if (typeof fnDone === "function") {
+                            fnDone("");
+                        }
+                    }
+                });
+            };
+
+            if (this.hash) {
+                fnCall(this.hash);
+                return;
+            }
+
+            this.getoHashToken().done(function (result) {
+                if (result && result.hash) {
+                    self.hash = result.hash;
+                    fnCall(self.hash);
+                    return;
+                }
+                if (typeof fnDone === "function") {
+                    fnDone("");
+                }
+            });
+        },
+
         _restoreInitialTreeSelection: function (oTreeTable, aRows) {
             if (!oTreeTable || !Array.isArray(aRows) || aRows.length === 0) {
                 return;
@@ -709,12 +764,20 @@ sap.ui.define([
                 return;
             }
 
-            var sFocusedPath = this._masterSessionState && this._masterSessionState.focusedPath;
-            if (sFocusedPath) {
-                this._expandPathToNode(sFocusedPath, oTreeTable, function (oTargetRow) {
-                    if (oTargetRow && oTargetRow.CT_ID) {
-                        this._applySelectedRowState(oTargetRow, false);
+            var sFocusedId = this._masterSessionState && (this._masterSessionState.focusedRow || this._masterSessionState.selectedItems);
+            // Need to call View_Node by VN_ID to resolve Full_Location before expanding the tree.
+            if (sFocusedId && sFocusedId !== "-1") {
+                this._resolveFocusedPathByVnId(sFocusedId, function (sFocusedPath) {
+                    if (sFocusedPath) {
+                        this._expandPathToNode(sFocusedPath, oTreeTable, function (oTargetRow) {
+                            if (oTargetRow && oTargetRow.CT_ID) {
+                                this._applySelectedRowState(oTargetRow, false);
+                            }
+                        }.bind(this));
+                        return;
                     }
+
+                    this._selectRowByIndex(oTreeTable, 0);
                 }.bind(this));
                 return;
             }
@@ -768,7 +831,12 @@ sap.ui.define([
                             this._restoreInitialTreeSelection(oTreeTable, aRows);
                         }.bind(this));
                     }
-                    this.setBusyOff();
+                    // When a traffic light fetch is triggered it calls setBusyOn synchronously;
+                    // calling setBusyOff here would turn the indicator off before that fetch
+                    // completes (visible flicker). Let _fetchTrafficLightColors own the final off.
+                    if (!sSelectedTrafficLight) {
+                        this.setBusyOff();
+                    }
                 }.bind(this),
                 "error": function (errorData) {
                     MessageBox.error(this.getResourceBundle().getText("msgErrorFetchingData"));
@@ -873,7 +941,6 @@ sap.ui.define([
             var bAssetViewChangeOnly = !!sActiveViewOverride && !oSelectedRow;
             var oRow = bAssetViewChangeOnly ? null : (oSelectedRow || oLocalDataModel.getProperty("/selectedNodeData"));
             var sRowId = this._getMasterRowPersistId(oRow) || "-1";
-            var sRowPath = this._getFullLocation(oRow) || "-1";
             var sTrafficLight = oLocalDataModel.getProperty("/selectedTrafficLight") || "-1";
 
             var aPayload = [
@@ -894,12 +961,6 @@ sap.ui.define([
                     subCategory: "Asset Location",
                     identifier: "selectedItems",
                     value: sRowId
-                },
-                {
-                    category: "Tree",
-                    subCategory: "Asset Location",
-                    identifier: "focusedPath",
-                    value: sRowPath
                 },
                 {
                     category: "Tree",
