@@ -164,6 +164,14 @@ html .sapUiContainer-Medium .sapUxAPObjectPageSectionHeader {
     color: var(--sapBrandColor, #0a6ed1);
 }
 
+/* Red text for fields with error object values (e.g. "No Credible DM's") */
+.errorValueRedText .sapMInputBaseInner,
+.errorValueRedText .sapMSltLabel,
+.errorValueRedText .sapMCbBg,
+.errorValueRedText input {
+    color: red !important;
+}
+
 .sapFDynamicPage-Std-Phone .sapFDynamicPageContent, .sapFDynamicPage-Std-Phone .sapFDynamicPageContentFitContainer {
     padding: 1rem 1rem 0 1rem !important;
 }

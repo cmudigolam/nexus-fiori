@@ -2654,6 +2654,27 @@ sap.ui.define([
                     return;
                 }
 
+                // Handle error object values (e.g. {"error": "No Credible DM's"})
+                if (vValue && typeof vValue === "object" && !Array.isArray(vValue) && vValue.error) {
+                    var sErrorText = String(vValue.error);
+                    if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
+                        oControl.setValue(sErrorText);
+                        oControl.setEditable(false);
+                        oControl.addStyleClass("errorValueRedText");
+                    } else if (oControl.isA("sap.m.Select") || oControl.isA("sap.m.ComboBox")) {
+                        oControl.setEnabled(false);
+                        oControl.removeAllItems();
+                        oControl.addItem(new Item({ key: "__error__", text: sErrorText }));
+                        oControl.setSelectedKey("__error__");
+                        oControl.addStyleClass("errorValueRedText");
+                    } else if (oControl.isA("sap.m.DatePicker")) {
+                        oControl.setValue(sErrorText);
+                        oControl.setEditable(false);
+                        oControl.addStyleClass("errorValueRedText");
+                    }
+                    return;
+                }
+
                 if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                     var sDisplayValue = String(vValue);
                     if (typeof vValue === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(vValue)) {
