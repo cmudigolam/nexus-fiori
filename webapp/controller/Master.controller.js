@@ -475,7 +475,7 @@ sap.ui.define([
             var oRowIndexMap = this._buildRowIndexMap(oTreeTable);
             if (oRowIndexMap.hasOwnProperty(sTargetFullLocation)) {
                 var iRowIndex = oRowIndexMap[sTargetFullLocation];
-                oTreeTable.setSelectedIndex(iRowIndex);
+                this._selectAndRevealRow(oTreeTable, iRowIndex);
                 return;
             }
             
@@ -489,14 +489,49 @@ sap.ui.define([
          */
         _buildRowIndexMap: function(oTreeTable) {
             var oMap = {};
+            var oBinding = oTreeTable.getBinding("rows");
+
+            // Use binding contexts instead of rendered rows so off-screen rows are also addressable.
+            if (oBinding && typeof oBinding.getLength === "function") {
+                var iLength = oBinding.getLength();
+                if (typeof oBinding.getContexts === "function") {
+                    var aContexts = oBinding.getContexts(0, iLength) || [];
+                    for (var i = 0; i < aContexts.length; i++) {
+                        var oRowContext = aContexts[i];
+                        if (!oRowContext) {
+                            continue;
+                        }
+                        var oRowData = oRowContext.getObject();
+                        var sFullLocation = this._getFullLocation(oRowData);
+                        if (sFullLocation) {
+                            oMap[sFullLocation] = i;
+                        }
+                    }
+                    return oMap;
+                }
+
+                for (var j = 0; j < iLength; j++) {
+                    var oIndexedContext = oTreeTable.getContextByIndex(j);
+                    if (!oIndexedContext) {
+                        continue;
+                    }
+                    var oIndexedData = oIndexedContext.getObject();
+                    var sIndexedFullLocation = this._getFullLocation(oIndexedData);
+                    if (sIndexedFullLocation) {
+                        oMap[sIndexedFullLocation] = j;
+                    }
+                }
+                return oMap;
+            }
+
             var aRows = oTreeTable.getRows();
-            for (var i = 0; i < aRows.length; i++) {
-                var oRowContext = aRows[i].getBindingContext("LocalDataModel");
-                if (oRowContext) {
-                    var oRowData = oRowContext.getObject();
-                    var sFullLocation = this._getFullLocation(oRowData);
-                    if (sFullLocation) {
-                        oMap[sFullLocation] = i;
+            for (var k = 0; k < aRows.length; k++) {
+                var oFallbackContext = aRows[k].getBindingContext("LocalDataModel");
+                if (oFallbackContext) {
+                    var oFallbackData = oFallbackContext.getObject();
+                    var sFallbackFullLocation = this._getFullLocation(oFallbackData);
+                    if (sFallbackFullLocation) {
+                        oMap[sFallbackFullLocation] = k;
                     }
                 }
             }
@@ -619,13 +654,13 @@ sap.ui.define([
                 aAncestorPaths.push(aPathSegments.slice(0, j + 1).join(" / "));
             }
 
-            var iMaxRetries = 25;
+            var iMaxRetries = 80;
 
             var fnSelectIfVisible = function () {
                 var oMap = self._buildRowIndexMap(oTreeTable);
                 if (oMap.hasOwnProperty(sTargetFullLocation)) {
                     var iTargetIndex = oMap[sTargetFullLocation];
-                    oTreeTable.setSelectedIndex(iTargetIndex);
+                    self._selectAndRevealRow(oTreeTable, iTargetIndex);
                     if (typeof fnAfterSelect === "function") {
                         var oTargetContext = oTreeTable.getContextByIndex(iTargetIndex);
                         var oTargetRow = oTargetContext ? oTargetContext.getProperty(oTargetContext.getPath()) : null;
@@ -679,7 +714,11 @@ sap.ui.define([
                 };
 
                 if (oAncestorData && oAncestorData.Has_Children && !self._areChildRowsLoaded(oAncestorData)) {
-                    self._loadChildNodes(oAncestorData, oAncestorContext.getPath() + "/rows", fnExpandAncestor);
+                    self._loadChildNodes(oAncestorData, oAncestorContext.getPath() + "/rows", function () {
+                        oTreeTable.attachEventOnce("rowsUpdated", function () {
+                            fnExpandAncestor();
+                        });
+                    });
                     return;
                 }
 
@@ -689,8 +728,18 @@ sap.ui.define([
             fnExpandAncestorAt(0, 0);
         },
 
-        _selectRowByIndex: function (oTreeTable, iIndex) {
+        _selectAndRevealRow: function (oTreeTable, iIndex) {
+            if (!oTreeTable || iIndex < 0) {
+                return;
+            }
             oTreeTable.setSelectedIndex(iIndex);
+            if (typeof oTreeTable.setFirstVisibleRow === "function") {
+                oTreeTable.setFirstVisibleRow(Math.max(0, iIndex - 3));
+            }
+        },
+
+        _selectRowByIndex: function (oTreeTable, iIndex) {
+            this._selectAndRevealRow(oTreeTable, iIndex);
             var oContext = oTreeTable.getContextByIndex(iIndex);
             if (oContext) {
                 var oRow = oContext.getProperty(oContext.getPath());
