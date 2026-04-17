@@ -22,6 +22,7 @@
         </content>
         <buttons>
             <Button text="{i18n>btnSave}" press="onFormSave" type="Emphasized" />
+            <Button text="{i18n>btnSaveClose}" press="onFormSaveAndClose" type="Emphasized" />
             <Button text="{i18n>btnClose}" press="onFormDialogClose" />
         </buttons>
     </Dialog>

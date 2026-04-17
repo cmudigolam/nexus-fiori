@@ -533,6 +533,8 @@ sap.ui.define([
             self._fieldControlMap = {};
             self._fieldVisibilityMap = {};
             self._fieldBusinessObjectMap = {};
+            self._boScopedControlMap = {};
+            self._boParentFieldMap = {};
             self._linkedDataByBO = {};
             self._cascadeFieldOrder = {};
             self._colourInputMap = {};
@@ -615,6 +617,12 @@ sap.ui.define([
                             var sParentFieldName = oForeignField.fieldName || oForeignField.name;
                             var sCompId = self.getLocalDataModel().getProperty("/sCompoonentID");
 
+                            // Store mapping so _saveFormData can resolve cascade selections back to parent field
+                            self._boParentFieldMap[sBusinessObjectName] = {
+                                parentFieldName: sParentFieldName,
+                                filterField: sFilterField
+                            };
+
                             if (sParentTableName && sCompId) {
                                 // Step 1: fetch the parent record to read the link value
                                 // e.g. /bo/CIG_Piping_Data/{compId} → record["Material"] → 8
@@ -667,9 +675,9 @@ sap.ui.define([
                             }
                         }
 
-                        // Only include fields where gridVisible is explicitly true
+                        // Include fields where gridVisible or formVisible is explicitly true
                         var aVisibleFields = aResponseFields.filter(function (oColField) {
-                            return oColField.gridVisible === true;
+                            return oColField.gridVisible === true || oColField.formVisible === true;
                         });
                         // Stamp each expanded field with the parent's category and business object name
                         // Force formVisible to true for fields selected by gridVisible,
@@ -871,6 +879,10 @@ sap.ui.define([
                             };
                             if (oField._businessObjectName) {
                                 self._fieldBusinessObjectMap[sFieldKey] = oField._businessObjectName;
+                                if (!self._boScopedControlMap[oField._businessObjectName]) {
+                                    self._boScopedControlMap[oField._businessObjectName] = {};
+                                }
+                                self._boScopedControlMap[oField._businessObjectName][sFieldKey] = oInput;
                             }
                             if (/colour/i.test(oField.name || oField.fieldName || "")) {
                                 self._colourInputMap[sFieldKey] = oInput;
@@ -1192,7 +1204,7 @@ sap.ui.define([
                             // Use LI_ID as the key (internal identifier stored in database)
                             // Use Value as the display text (what user sees)
                             var sKey = String(oItem.LI_ID || oItem.Value || "");
-                            var sText = String(oItem.Value || oItem.Name || oItem.Description || "");
+                            var sText = String(oItem.Comments);
                             oSelect.addItem(new Item({
                                 key: sKey,
                                 text: sText
@@ -2357,19 +2369,18 @@ sap.ui.define([
             return "#" + [r, g, b].map(function (n) { return n.toString(16).padStart(2, "0"); }).join("").toUpperCase();
         },
         _populateLinkedFields: function (oLinkedResponse, sBusinessObjectName) {
-            if (!oLinkedResponse || !this._fieldControlMap) { return; }
+            if (!oLinkedResponse) { return; }
             var aRows = this._linkedDataByBO[sBusinessObjectName] || [];
             if (aRows.length === 0) { return; }
 
             var self = this;
-            var oBoMap = this._fieldBusinessObjectMap || {};
+            var oBoControls = (this._boScopedControlMap && this._boScopedControlMap[sBusinessObjectName]) || {};
 
             // Collect ordered Select field keys belonging to this BO
             var aSelectFields = [];
             var aNonSelectFields = [];
-            Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
-                if (oBoMap[sFieldKey] !== sBusinessObjectName) { return; }
-                var oControl = self._fieldControlMap[sFieldKey];
+            Object.keys(oBoControls).forEach(function (sFieldKey) {
+                var oControl = oBoControls[sFieldKey];
                 if (oControl && oControl.isA("sap.m.Select")) {
                     aSelectFields.push(sFieldKey);
                 } else {
@@ -2397,7 +2408,7 @@ sap.ui.define([
             // Populate root of each independent chain with all unique values
             aChains.forEach(function (aChain) {
                 if (aChain.length > 0) {
-                    self._populateSelectUnique(aChain[0], aRows);
+                    self._populateSelectUnique(aChain[0], aRows, sBusinessObjectName);
                 }
             });
 
@@ -2412,13 +2423,13 @@ sap.ui.define([
             var oFirstRow = oMatchedRow || aRows[0];
             for (var i = 0; i < aCascadeOrder.length; i++) {
                 var sField = aCascadeOrder[i];
-                var oControl = this._fieldControlMap[sField];
+                var oControl = oBoControls[sField];
                 var vValue = oFirstRow[sField];
                 if (oControl && vValue !== undefined && vValue !== null) {
                     // For non-root fields, filter rows by all ancestor selections first
                     if (i > 0) {
                         var aFiltered = this._getFilteredRows(sBusinessObjectName, aCascadeOrder, i);
-                        this._populateSelectUnique(sField, aFiltered);
+                        this._populateSelectUnique(sField, aFiltered, sBusinessObjectName);
                     }
                     var sValueStr = String(vValue).trim();
                     this._setSelectValue(oControl, sValueStr);
@@ -2427,7 +2438,7 @@ sap.ui.define([
 
             // Populate non-Select fields from first row
             aNonSelectFields.forEach(function (sFieldKey) {
-                var oControl = self._fieldControlMap[sFieldKey];
+                var oControl = oBoControls[sFieldKey];
                 var vValue = oFirstRow[sFieldKey];
                 if (vValue === undefined || vValue === null) { return; }
                 if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
@@ -2444,7 +2455,7 @@ sap.ui.define([
             for (var j = 0; j < aCascadeOrder.length; j++) {
                 (function (iIdx) {
                     var sField = aCascadeOrder[iIdx];
-                    var oCtrl = self._fieldControlMap[sField];
+                    var oCtrl = oBoControls[sField];
                     if (oCtrl && oCtrl.isA("sap.m.Select")) {
                         oCtrl.attachChange(function () {
                             self._onCascadeSelectChange(sBusinessObjectName, aCascadeOrder, iIdx);
@@ -2532,8 +2543,14 @@ sap.ui.define([
         /**
          * Populate a Select control with unique values from given rows.
          */
-        _populateSelectUnique: function (sFieldKey, aRows) {
-            var oControl = this._fieldControlMap[sFieldKey];
+        _populateSelectUnique: function (sFieldKey, aRows, sBusinessObjectName) {
+            var oControl;
+            if (sBusinessObjectName && this._boScopedControlMap && this._boScopedControlMap[sBusinessObjectName]) {
+                oControl = this._boScopedControlMap[sBusinessObjectName][sFieldKey];
+            }
+            if (!oControl) {
+                oControl = this._fieldControlMap[sFieldKey];
+            }
             if (!oControl || !oControl.isA("sap.m.Select")) { return; }
             var aUniqueValues = [];
             var oSeen = {};
@@ -2579,13 +2596,14 @@ sap.ui.define([
             var sTargetField = aCascadeOrder[iFieldIdx];
             var iTargetChain = oChainIndex ? oChainIndex[sTargetField] : undefined;
 
+            var oBoControls = (this._boScopedControlMap && this._boScopedControlMap[sBusinessObjectName]) || {};
             for (var i = 0; i < iFieldIdx; i++) {
                 var sAncestor = aCascadeOrder[i];
                 // Skip ancestors from different independent chains
                 if (oChainIndex && iTargetChain !== undefined && oChainIndex[sAncestor] !== iTargetChain) {
                     continue;
                 }
-                var oAncestorCtrl = this._fieldControlMap[sAncestor];
+                var oAncestorCtrl = oBoControls[sAncestor] || this._fieldControlMap[sAncestor];
                 if (oAncestorCtrl && oAncestorCtrl.isA("sap.m.Select")) {
                     var sSelectedKey = oAncestorCtrl.getSelectedKey();
                     if (sSelectedKey) {
@@ -2606,6 +2624,7 @@ sap.ui.define([
             var sChangedField = aCascadeOrder[iChangedIdx];
             var iChangedChain = oChainIndex ? oChainIndex[sChangedField] : undefined;
 
+            var oBoControls = (this._boScopedControlMap && this._boScopedControlMap[sBusinessObjectName]) || {};
             // For each child field after the changed one in the same chain, repopulate
             for (var i = iChangedIdx + 1; i < aCascadeOrder.length; i++) {
                 var sChildField = aCascadeOrder[i];
@@ -2613,12 +2632,12 @@ sap.ui.define([
                 if (oChainIndex && iChangedChain !== undefined && oChainIndex[sChildField] !== iChangedChain) {
                     continue;
                 }
-                var oChildCtrl = this._fieldControlMap[sChildField];
+                var oChildCtrl = oBoControls[sChildField] || this._fieldControlMap[sChildField];
                 if (!oChildCtrl || !oChildCtrl.isA("sap.m.Select")) { continue; }
 
                 // Filter rows by all ancestors up to this child
                 var aFiltered = this._getFilteredRows(sBusinessObjectName, aCascadeOrder, i);
-                this._populateSelectUnique(sChildField, aFiltered);
+                this._populateSelectUnique(sChildField, aFiltered, sBusinessObjectName);
 
                 // Auto-select first item
                 var aItems = oChildCtrl.getItems();
@@ -2647,6 +2666,12 @@ sap.ui.define([
 
             var self = this;
             Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
+                // Skip fields that belong to a linked business object (LT_ tables)
+                // Their values are populated by _populateLinkedFields via cascade logic
+                if (self._fieldBusinessObjectMap && self._fieldBusinessObjectMap[sFieldKey]) {
+                    return;
+                }
+
                 var oControl = self._fieldControlMap[sFieldKey];
                 var vValue = oRecord[sFieldKey];
 
@@ -2918,6 +2943,14 @@ sap.ui.define([
             this._pendingComboBoxValues = {};
         },
         onFormSave: function () {
+            this._saveFormData(false);
+        },
+
+        onFormSaveAndClose: function () {
+            this._saveFormData(true);
+        },
+
+        _saveFormData: function (bCloseOnSuccess) {
             var oLocalDataModel = this.getLocalDataModel();
             var sTableName = oLocalDataModel.getProperty("/selectedTableName");
             var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
@@ -3006,6 +3039,40 @@ sap.ui.define([
                         var sComboValue = oComboItem ? oComboItem.getText() : oControl.getValue();
                         if (sComboValue !== "" && sComboValue !== undefined) {
                             oPayload[sFieldKey] = sComboValue;
+                        }
+                    }
+                });
+            }
+            // Resolve BO cascade selections back to parent link field values
+            if (this._boParentFieldMap && this._boScopedControlMap && this._linkedDataByBO) {
+                var oBoParentFieldMap = this._boParentFieldMap;
+                var oBoScopedControlMap = this._boScopedControlMap;
+                var oLinkedDataByBO = this._linkedDataByBO;
+                Object.keys(oBoParentFieldMap).forEach(function (sBoName) {
+                    var oMapping = oBoParentFieldMap[sBoName];
+                    var oBoControls = oBoScopedControlMap[sBoName];
+                    var aBoRows = oLinkedDataByBO[sBoName];
+                    if (!oMapping || !oBoControls || !aBoRows || !aBoRows.length) { return; }
+
+                    // Filter rows by all current cascade Select values
+                    var aFiltered = aBoRows;
+                    Object.keys(oBoControls).forEach(function (sFieldKey) {
+                        var oCtrl = oBoControls[sFieldKey];
+                        if (oCtrl && oCtrl.isA("sap.m.Select")) {
+                            var sSelKey = oCtrl.getSelectedKey();
+                            if (sSelKey) {
+                                aFiltered = aFiltered.filter(function (oRow) {
+                                    return String(oRow[sFieldKey] || "") === sSelKey;
+                                });
+                            }
+                        }
+                    });
+
+                    // Use the first matching row's primary key as the parent field value
+                    if (aFiltered.length > 0) {
+                        var vPkValue = aFiltered[0][oMapping.filterField];
+                        if (vPkValue !== undefined && vPkValue !== null) {
+                            oPayload[oMapping.parentFieldName] = vPkValue;
                         }
                     }
                 });
@@ -3103,15 +3170,9 @@ sap.ui.define([
                                 });
                             });
                         }
-                        MessageBox.success(self.getResourceBundle().getText("msgFormSaveSuccess"), {
-                            onClose: function () {
-                                if (self._oFormDialog) {
-                                    self._oFormDialog.close();
-                                }
-                            }
-                        });
+                        MessageToast.show(self.getResourceBundle().getText("msgFormSaveSuccess"));
                         self.setBusyOff();
-                        if (self._oFormDialog) {
+                        if (bCloseOnSuccess && self._oFormDialog) {
                             self._oFormDialog.close();
                         }
                     },
