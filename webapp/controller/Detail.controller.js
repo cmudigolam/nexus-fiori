@@ -872,17 +872,26 @@ sap.ui.define([
                         // Store reference for later data population
                         var sFieldKey = oField.fieldName || oField.name;
                         if (sFieldKey) {
-                            self._fieldControlMap[sFieldKey] = oInput;
-                            self._fieldVisibilityMap[sFieldKey] = {
-                                label: oLabel,
-                                container: oInput
-                            };
                             if (oField._businessObjectName) {
+                                // BO-scoped field: register in BO maps only.
+                                // Do NOT overwrite a non-BO control already stored under the same key
+                                // (e.g. "Generic_Material" exists as both a plain lookup field and an
+                                // LT_-expanded cascade field — the plain one must stay in _fieldControlMap).
                                 self._fieldBusinessObjectMap[sFieldKey] = oField._businessObjectName;
                                 if (!self._boScopedControlMap[oField._businessObjectName]) {
                                     self._boScopedControlMap[oField._businessObjectName] = {};
                                 }
                                 self._boScopedControlMap[oField._businessObjectName][sFieldKey] = oInput;
+                                if (!self._fieldControlMap[sFieldKey]) {
+                                    self._fieldControlMap[sFieldKey] = oInput;
+                                    self._fieldVisibilityMap[sFieldKey] = { label: oLabel, container: oInput };
+                                }
+                            } else {
+                                self._fieldControlMap[sFieldKey] = oInput;
+                                self._fieldVisibilityMap[sFieldKey] = {
+                                    label: oLabel,
+                                    container: oInput
+                                };
                             }
                             if (/colour/i.test(oField.name || oField.fieldName || "")) {
                                 self._colourInputMap[sFieldKey] = oInput;
@@ -902,8 +911,15 @@ sap.ui.define([
                                     ? self._oUserPreferredUnitByType[Number(oUnitInfo.utId)]
                                     : null;
                                 var sDisplaySymbol = oUnitInfo.symbol;
-                                var fInitGradient = 1;
-                                var fInitConstant = 0;
+                                // Get the field's own unit gradient/constant (for back-conversion to reference)
+                                var oFieldUnit = self._aUnitData.find(function (oU) {
+                                    return Number(oU.Unit_ID) === Number(oField.unitId);
+                                });
+                                var fFieldGradient = oFieldUnit ? (parseFloat(oFieldUnit.Gradient) || 1) : 1;
+                                var fFieldConstant = oFieldUnit ? (parseFloat(oFieldUnit.Constant) || 0) : 0;
+                                // Initially, the display unit = field's own unit
+                                var fInitGradient = fFieldGradient;
+                                var fInitConstant = fFieldConstant;
 
                                 if (iPreferredUnitId !== null && iPreferredUnitId !== undefined) {
                                     var oPreferredUnit = self._aUnitData.find(function (oU) {
@@ -928,7 +944,9 @@ sap.ui.define([
                                     defaultSymbol: oUnitInfo.symbol,
                                     currentSymbol: sDisplaySymbol,
                                     currentGradient: fInitGradient,
-                                    currentConstant: fInitConstant
+                                    currentConstant: fInitConstant,
+                                    fieldGradient: fFieldGradient,
+                                    fieldConstant: fFieldConstant
                                 };
                             }
                         }
@@ -1102,15 +1120,10 @@ sap.ui.define([
                 return oTable;
             }
 
-            // If field has a lookupListId, create a Select/ComboBox and load lookup items
+            // If field has a lookupListId, always create a Select and load lookup items
             if (oField.lookupListId) {
                 this._pendingLookupCount++;
-                var oSelect = Number(oField.fieldTypeId) === 37
-                    ? new sap.m.ComboBox({ width: "100%" })
-                    : new sap.m.Select({
-                        //placeholder: oField.name || oField.fieldName,
-                        width: "100%"
-                    });
+                var oSelect = new sap.m.Select({ width: "100%", forceSelection: false });
                 this._loadLookupItems(oSelect, oField.lookupListId);
                 return oSelect;
             }
@@ -1195,16 +1208,17 @@ sap.ui.define([
                         "X-NEXUS-Sort": JSON.stringify([{ "field": "Value", "ascending": true }])
                     },
                     "data": {
-                        "hash": sResolvedHash
+                        "hash": sResolvedHash,
+                        "pageSize": 10000
                     },
                     "success": function (response) {
                         var aItems = Array.isArray(response && response.rows) ? response.rows : [];
                         oSelect.removeAllItems();
                         aItems.forEach(function (oItem) {
                             // Use LI_ID as the key (internal identifier stored in database)
-                            // Use Value as the display text (what user sees)
-                            var sKey = String(oItem.LI_ID || oItem.Value || "");
-                            var sText = String(oItem.Comments);
+                            var sKey = (oItem.LI_ID !== undefined && oItem.LI_ID !== null)
+                                ? String(oItem.LI_ID) : String(oItem.Value || "");
+                            var sText = String(oItem.Comments || oItem.Value || "");
                             oSelect.addItem(new Item({
                                 key: sKey,
                                 text: sText
@@ -2157,8 +2171,30 @@ sap.ui.define([
             var oCurrentInfo = this._unitFieldInfo[sFieldKey];
             var fCurrentGradient = (oCurrentInfo && oCurrentInfo.currentGradient) || 1;
             var fCurrentConstant = (oCurrentInfo && oCurrentInfo.currentConstant) || 0;
-            // Convert field value back to reference unit value
-            var vRefValue = (vFieldValue - fCurrentConstant) / fCurrentGradient;
+            // Use stored precise reference value when available to avoid
+            // truncation errors from round-tripping through decimal formatting.
+            // If user manually edited the field, detect by comparing displayed
+            // value with expected rounded value and recompute if different.
+            var vRefValue;
+            if (oCurrentInfo && oCurrentInfo.referenceValue !== undefined) {
+                var fExpectedDisplay = oCurrentInfo.referenceValue * fCurrentGradient + fCurrentConstant;
+                var oDispUnit = self._aUnitData && self._aUnitData.find(function (oU) {
+                    return oU.Symbol === (oCurrentInfo.currentSymbol || "");
+                });
+                var iDispDec = (oDispUnit && oDispUnit.Decimals !== undefined && oDispUnit.Decimals !== null)
+                    ? Number(oDispUnit.Decimals) : 5;
+                var fExpectedRounded = parseFloat(fExpectedDisplay.toFixed(iDispDec));
+                if (Math.abs(vFieldValue - fExpectedRounded) < Math.pow(10, -(iDispDec + 1))) {
+                    // Displayed value matches expected — use stored precise reference
+                    vRefValue = oCurrentInfo.referenceValue;
+                } else {
+                    // User manually changed the value — recompute reference from input
+                    vRefValue = (vFieldValue - fCurrentConstant) / fCurrentGradient;
+                    oCurrentInfo.referenceValue = vRefValue;
+                }
+            } else {
+                vRefValue = (vFieldValue - fCurrentConstant) / fCurrentGradient;
+            }
 
             // Ensure preference map is built from Unit_Item + Unit cross-reference
             self._ensureUserPreferredUnitMap();
@@ -2192,14 +2228,14 @@ sap.ui.define([
                 return 0;
             });
 
-            // Determine which unit is the reference (default) unit
-            var iRefUnitId = oUnitInfo.refUnit ? Number(oUnitInfo.refUnit.Unit_ID) : null;
+            // Determine which unit is the field's assigned (default) unit
+            var iDefaultUnitId = Number(iUnitId);
 
             // Build and open Popover with unit conversions using DisplayListItem
             var oList = new List({
                 mode: "SingleSelectMaster",
                 items: aConvertedItems.map(function (oItem) {
-                    var bIsDefault = iRefUnitId !== null && Number(oItem.unitId) === iRefUnitId;
+                    var bIsDefault = Number(oItem.unitId) === iDefaultUnitId;
                     var bIsCurrent = oItem.symbol === (oCurrentInfo && oCurrentInfo.currentSymbol);
                     var sLabel = oItem.name + " (" + oItem.symbol + ")";
                     if (bIsDefault) { sLabel += "  ·  Default"; }
@@ -2264,13 +2300,19 @@ sap.ui.define([
             // Build info toolbar showing Default and Preferred values
             var aInfoContent = [];
 
-            // Default (reference) unit value
-            if (oUnitInfo.refUnit) {
-                var sRefSymbol = oUnitInfo.refUnit.Symbol || oUnitInfo.refUnit.Name || "";
-                var iRefDecimals = (oUnitInfo.refUnit.Decimals !== undefined && oUnitInfo.refUnit.Decimals !== null) ? Number(oUnitInfo.refUnit.Decimals) : 5;
-                var sRefFormatted = vRefValue.toFixed(iRefDecimals);
+            // Default = field's assigned unit (unitId from the field definition)
+            var oFieldUnit = this._aUnitData.find(function (oU) {
+                return Number(oU.Unit_ID) === iDefaultUnitId;
+            });
+            if (oFieldUnit) {
+                var sFieldUnitSymbol = oFieldUnit.Symbol || oFieldUnit.Name || "";
+                var fFieldGradient = parseFloat(oFieldUnit.Gradient) || 1;
+                var fFieldConstant = parseFloat(oFieldUnit.Constant) || 0;
+                var fFieldValue = vRefValue * fFieldGradient + fFieldConstant;
+                var iFieldDecimals = (oFieldUnit.Decimals !== undefined && oFieldUnit.Decimals !== null) ? Number(oFieldUnit.Decimals) : 5;
+                var sFieldFormatted = fFieldValue.toFixed(iFieldDecimals);
                 aInfoContent.push(new sap.m.Label({ text: "Default:", design: "Bold" }));
-                aInfoContent.push(new sap.m.Text({ text: sRefFormatted + " " + sRefSymbol }));
+                aInfoContent.push(new sap.m.Text({ text: sFieldFormatted + " " + sFieldUnitSymbol }));
             }
 
             // Preferred unit value
@@ -2666,13 +2708,21 @@ sap.ui.define([
 
             var self = this;
             Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
-                // Skip fields that belong to a linked business object (LT_ tables)
-                // Their values are populated by _populateLinkedFields via cascade logic
-                if (self._fieldBusinessObjectMap && self._fieldBusinessObjectMap[sFieldKey]) {
-                    return;
+                var oControl = self._fieldControlMap[sFieldKey];
+
+                // Skip only when the _fieldControlMap entry IS the BO-scoped control.
+                // If a non-BO control shares the same fieldName (e.g. "Generic_Material" old field
+                // vs LT_-expanded cascade field), the non-BO control must still be populated here.
+                var sBoName = self._fieldBusinessObjectMap && self._fieldBusinessObjectMap[sFieldKey];
+                if (sBoName) {
+                    var oBoCtrl = self._boScopedControlMap &&
+                        self._boScopedControlMap[sBoName] &&
+                        self._boScopedControlMap[sBoName][sFieldKey];
+                    if (oBoCtrl === oControl) {
+                        return; // This IS the BO-scoped control — skip, handled by _populateLinkedFields
+                    }
                 }
 
-                var oControl = self._fieldControlMap[sFieldKey];
                 var vValue = oRecord[sFieldKey];
 
                 if (vValue === undefined || vValue === null) {
@@ -2710,14 +2760,24 @@ sap.ui.define([
                         }
                     }
                     // Convert value to preferred unit if a preferred unit conversion exists,
-                    // and always apply the unit's Decimals formatting when a unit is present
+                    // and always apply the unit's Decimals formatting when a unit is present.
+                    // Backend returns value in the field's configured unit, NOT the reference unit.
                     var oUnitFieldInfo = self._unitFieldInfo && self._unitFieldInfo[sFieldKey];
                     if (oUnitFieldInfo) {
                         var fRawValue = parseFloat(vValue);
                         if (!isNaN(fRawValue)) {
-                            var fGradient = oUnitFieldInfo.currentGradient || 1;
-                            var fConstant = oUnitFieldInfo.currentConstant || 0;
-                            var fConverted = fRawValue * fGradient + fConstant;
+                            // Convert: field's unit → reference → current display unit
+                            var fFieldGradient = oUnitFieldInfo.fieldGradient || 1;
+                            var fFieldConstant = oUnitFieldInfo.fieldConstant || 0;
+                            var fCurrentGradient = oUnitFieldInfo.currentGradient || 1;
+                            var fCurrentConstant = oUnitFieldInfo.currentConstant || 0;
+                            // Step 1: raw value (field's unit) → reference value
+                            var fRefValue = (fRawValue - fFieldConstant) / fFieldGradient;
+                            // Store the precise reference value so subsequent conversions
+                            // (popover, save) do not lose precision from decimal truncation.
+                            oUnitFieldInfo.referenceValue = fRefValue;
+                            // Step 2: reference value → current display unit
+                            var fConverted = fRefValue * fCurrentGradient + fCurrentConstant;
                             // Get decimals from the current (preferred or default) unit
                             var oDisplayUnit = self._aUnitData && self._aUnitData.find(function (oU) {
                                 return oU.Symbol === oUnitFieldInfo.currentSymbol;
@@ -2762,7 +2822,16 @@ sap.ui.define([
                 } else if (oControl.isA("sap.m.CheckBox")) {
                     oControl.setSelected(!!vValue);
                 } else if (oControl.isA("sap.m.Select") || oControl.isA("sap.m.ComboBox")) {
-                    var sValueStr = String(vValue).trim();
+                    var sValueStr;
+                    // When the API returns a nested object (e.g. {LI_ID: 584, Value: "..."}) extract LI_ID
+                    if (vValue && typeof vValue === "object" && !Array.isArray(vValue)) {
+                        var vId = (vValue.LI_ID !== undefined && vValue.LI_ID !== null) ? vValue.LI_ID
+                            : (vValue.id !== undefined && vValue.id !== null ? vValue.id : null);
+                        var vTxt = (vValue.Value !== undefined && vValue.Value !== null) ? vValue.Value : null;
+                        sValueStr = vId !== null ? String(vId).trim() : (vTxt !== null ? String(vTxt).trim() : "");
+                    } else {
+                        sValueStr = String(vValue).trim();
+                    }
 
                     // Store this value as pending - it will be applied after items load
                     self._pendingComboBoxValues[sFieldKey] = {
@@ -2774,7 +2843,8 @@ sap.ui.define([
                     var aItems = oControl.getItems();
 
                     if (aItems && aItems.length > 0) {
-                        // Items already loaded, apply immediately
+                        // Items already loaded — reset to blank first, then apply matched value
+                        oControl.setSelectedKey("");
                         self._applyComboBoxValue(oControl, sFieldKey, sValueStr);
                     } else {
                         // Items not loaded yet - they will be applied when _applyPendingComboBoxValues is called
@@ -2899,25 +2969,21 @@ sap.ui.define([
             // Normalize the value for comparison
             var sNormalizedValue = String(sValue).trim();
 
-            // Priority 1: Try to match by display text (Value field from lookup) since that's what gets stored
+            // Priority 1: Match by key (LI_ID) — database stores the LI_ID integer, not the display text
             var matchedKey = null;
             for (var i = 0; i < aItems.length; i++) {
-                var sItemText = String(aItems[i].getText()).trim();
-
-                // Try text match first (this is what the database stores)
-                if (sItemText === sNormalizedValue) {
-                    matchedKey = aItems[i].getKey();
+                var sItemKey = String(aItems[i].getKey()).trim();
+                if (sItemKey === sNormalizedValue || parseInt(sItemKey) === parseInt(sNormalizedValue)) {
+                    matchedKey = sItemKey;
                     break;
                 }
             }
 
-            // Priority 2: If no text match, try key match (LI_ID)
+            // Priority 2: Fall back to display text match
             if (matchedKey === null) {
                 for (var i = 0; i < aItems.length; i++) {
-                    var sItemKey = String(aItems[i].getKey()).trim();
-
-                    // Try key match (including numeric comparison)
-                    if (sItemKey === sNormalizedValue || parseInt(sItemKey) === parseInt(sNormalizedValue)) {
+                    var sItemText = String(aItems[i].getText()).trim();
+                    if (sItemText === sNormalizedValue) {
                         matchedKey = aItems[i].getKey();
                         break;
                     }
@@ -2927,6 +2993,7 @@ sap.ui.define([
             if (matchedKey !== null) {
                 oSelect.setSelectedKey(matchedKey);
             }
+            // If no match, leave selection unchanged (forceSelection:false keeps it blank)
         },
 
         _applyPendingComboBoxValues: function () {
@@ -2937,6 +3004,8 @@ sap.ui.define([
             var self = this;
             Object.keys(this._pendingComboBoxValues).forEach(function (sFieldKey) {
                 var oPending = self._pendingComboBoxValues[sFieldKey];
+                // Reset to blank first so forceSelection:false doesn't show stale/first item
+                oPending.control.setSelectedKey("");
                 self._applyComboBoxValue(oPending.control, sFieldKey, oPending.value);
             });
             // Clear pending values after applying
@@ -2996,14 +3065,39 @@ sap.ui.define([
                     if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                         vValue = oControl.getValue();
                         if (vValue !== "" && vValue !== undefined) {
-                            // Convert UOM fields back to default (reference) unit before saving
+                            // Convert UOM fields back to the field's configured unit before saving.
+                            // Display might be in a preferred unit; backend expects the field's own unit.
                             var oUnitMeta = self._unitFieldInfo && self._unitFieldInfo[sFieldKey];
-                            if (oUnitMeta && (oUnitMeta.currentGradient !== 1 || oUnitMeta.currentConstant !== 0)) {
+                            if (oUnitMeta) {
                                 var fDisplayed = parseFloat(vValue);
                                 if (!isNaN(fDisplayed)) {
-                                    // Reverse: refValue = (displayedValue - constant) / gradient
-                                    var fRefValue = (fDisplayed - oUnitMeta.currentConstant) / oUnitMeta.currentGradient;
-                                    oPayload[sFieldKey] = String(fRefValue);
+                                    var fCurrentGradient = oUnitMeta.currentGradient || 1;
+                                    var fCurrentConstant = oUnitMeta.currentConstant || 0;
+                                    var fFieldGradient = oUnitMeta.fieldGradient || 1;
+                                    var fFieldConstant = oUnitMeta.fieldConstant || 0;
+                                    // Use stored precise reference value when available to
+                                    // avoid truncation errors from decimal formatting.
+                                    var fRefValue;
+                                    if (oUnitMeta.referenceValue !== undefined) {
+                                        var fExpectedDisplay = oUnitMeta.referenceValue * fCurrentGradient + fCurrentConstant;
+                                        var oSaveDispUnit = self._aUnitData && self._aUnitData.find(function (oU) {
+                                            return oU.Symbol === (oUnitMeta.currentSymbol || "");
+                                        });
+                                        var iSaveDec = (oSaveDispUnit && oSaveDispUnit.Decimals !== undefined && oSaveDispUnit.Decimals !== null)
+                                            ? Number(oSaveDispUnit.Decimals) : 5;
+                                        var fExpRounded = parseFloat(fExpectedDisplay.toFixed(iSaveDec));
+                                        if (Math.abs(fDisplayed - fExpRounded) < Math.pow(10, -(iSaveDec + 1))) {
+                                            fRefValue = oUnitMeta.referenceValue;
+                                        } else {
+                                            fRefValue = (fDisplayed - fCurrentConstant) / fCurrentGradient;
+                                        }
+                                    } else {
+                                        // display unit → reference
+                                        fRefValue = (fDisplayed - fCurrentConstant) / fCurrentGradient;
+                                    }
+                                    // reference → field's unit
+                                    var fFieldValue = fRefValue * fFieldGradient + fFieldConstant;
+                                    oPayload[sFieldKey] = String(fFieldValue);
                                 } else {
                                     oPayload[sFieldKey] = vValue;
                                 }
@@ -3027,17 +3121,20 @@ sap.ui.define([
                         var oSelectedItem = oControl.getSelectedItem();
                         var sSelectedText = oSelectedItem ? oSelectedItem.getText() : "";
 
-                        // Post the selected text/value (not the LI_ID) - this is what the database expects
-                        if (sSelectedText !== "" && sSelectedText !== undefined) {
-                            oPayload[sFieldKey] = sSelectedText;
-                        } else if (sSelectedKey !== "" && sSelectedKey !== undefined) {
+                        // Prefer the selected key for lookup-backed dropdowns; fall back to text when no key exists.
+                        if (sSelectedKey !== "" && sSelectedKey !== undefined) {
                             oPayload[sFieldKey] = sSelectedKey;
+                        } else if (sSelectedText !== "" && sSelectedText !== undefined) {
+                            oPayload[sFieldKey] = sSelectedText;
                         }
                     } else if (oControl.isA("sap.m.ComboBox")) {
-                        // ComboBox is editable — prefer selected item text, fall back to typed value
+                        // ComboBox is editable — prefer selected key, then selected text, then typed value.
+                        var sComboKey = oControl.getSelectedKey();
                         var oComboItem = oControl.getSelectedItem();
                         var sComboValue = oComboItem ? oComboItem.getText() : oControl.getValue();
-                        if (sComboValue !== "" && sComboValue !== undefined) {
+                        if (sComboKey !== "" && sComboKey !== undefined) {
+                            oPayload[sFieldKey] = sComboKey;
+                        } else if (sComboValue !== "" && sComboValue !== undefined) {
                             oPayload[sFieldKey] = sComboValue;
                         }
                     }
