@@ -1156,6 +1156,14 @@ sap.ui.define([
                     });
                     return oSelect;
                 case 40: // Sub-table
+                    if (Number(oField.editorTypeId) === 12) {
+                        return new sap.m.TextArea({
+                            enabled: false,
+                            growing: true,
+                            growingMaxLines: 6,
+                            width: "100%"
+                        });
+                    }
                     return new sap.m.Input({
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
@@ -1213,6 +1221,12 @@ sap.ui.define([
                     },
                     "success": function (response) {
                         var aItems = Array.isArray(response && response.rows) ? response.rows : [];
+                        // Sort alphabetically by display text (case-insensitive) client-side
+                        aItems.sort(function (a, b) {
+                            var sA = String(a.Comments || a.Value || "").toLowerCase();
+                            var sB = String(b.Comments || b.Value || "").toLowerCase();
+                            return sA < sB ? -1 : sA > sB ? 1 : 0;
+                        });
                         oSelect.removeAllItems();
                         aItems.forEach(function (oItem) {
                             // Use LI_ID as the key (internal identifier stored in database)
@@ -1543,7 +1557,13 @@ sap.ui.define([
                 var oSelect = new sap.m.Select({ width: "100%", autoAdjustWidth: false });
                 // Add a blank first item so nothing is pre-selected when value is absent
                 oSelect.addItem(new sap.ui.core.Item({ key: "", text: "" }));
-                aLookupItems.forEach(function (oLookupItem) {
+                // Sort alphabetically by display text before rendering
+                var aSortedLookupItems = aLookupItems.slice().sort(function (a, b) {
+                    var sA = String(a.Comments || a.Value || a.Name || "").toLowerCase();
+                    var sB = String(b.Comments || b.Value || b.Name || "").toLowerCase();
+                    return sA < sB ? -1 : sA > sB ? 1 : 0;
+                });
+                aSortedLookupItems.forEach(function (oLookupItem) {
                     // Key = LI_ID (raw integer stored in data); Text = Comments (display label)
                     var sKey = String(oLookupItem.LI_ID || oLookupItem.Value || "");
                     var sText = String(oLookupItem.Comments || oLookupItem.Value || oLookupItem.Name || "");
@@ -2605,6 +2625,10 @@ sap.ui.define([
                         aUniqueValues.push(sVal);
                     }
                 }
+            });
+            // Sort unique values alphabetically before rendering
+            aUniqueValues.sort(function (a, b) {
+                return a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0;
             });
             oControl.removeAllItems();
             aUniqueValues.forEach(function (sVal) {

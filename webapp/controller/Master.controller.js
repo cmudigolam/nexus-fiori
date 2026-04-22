@@ -407,6 +407,12 @@ sap.ui.define([
                 },
                 "success": function (response) {
                     var aTreeList = response.rows || [];
+                    // Sort asset list alphabetically by Name (case-insensitive)
+                    aTreeList.sort(function (a, b) {
+                        var sA = String(a.Name || "").toLowerCase();
+                        var sB = String(b.Name || "").toLowerCase();
+                        return sA < sB ? -1 : sA > sB ? 1 : 0;
+                    });
                     this.getLocalDataModel().setProperty("/treeList", aTreeList);
                     if (aTreeList.length > 0) {
                         // Preserve previously selected asset if it still exists in the list
