@@ -686,12 +686,14 @@ sap.ui.define([
                         // Stamp each expanded field with the parent's category and business object name
                         // Force formVisible to true for fields selected by gridVisible,
                         // so they are not hidden by buildFormContent's formVisible check
+                        var sBoGroupLabel = oForeignField.name || oForeignField.fieldName || sBusinessObjectName;
                         aVisibleFields.forEach(function (oExpandedField) {
                             oExpandedField.category = sParentCategory;
                             oExpandedField.formVisible = true;
                             if (sBusinessObjectName) {
                                 oExpandedField._businessObjectName = sBusinessObjectName;
                             }
+                            oExpandedField._boGroupLabel = sBoGroupLabel;
                         });
 
                         // Replace the foreign-reference field with the expanded fields in oFormData.fields
@@ -796,7 +798,7 @@ sap.ui.define([
                         if (sBo) {
                             if (oBoPosMap[sBo] === undefined) {
                                 oBoPosMap[sBo] = aBoGroups.length;
-                                aBoGroups.push({ bo: sBo, fields: [] });
+                                aBoGroups.push({ bo: sBo, label: oField._boGroupLabel || sBo, fields: [] });
                             }
                             aBoGroups[oBoPosMap[sBo]].fields.push(oField);
                         } else {
@@ -807,14 +809,14 @@ sap.ui.define([
                     aSortedFields = aNonBoFields;
                     aBoGroups.forEach(function (oGroup) {
                         // Insert a separator marker for BO group
-                        aSortedFields.push({ _boGroupTitle: oGroup.bo, _isGroupSeparator: true });
+                        aSortedFields.push({ _boGroupTitle: oGroup.label, _isGroupSeparator: true });
                         aSortedFields = aSortedFields.concat(oGroup.fields);
                     });
 
                     aSortedFields.forEach(function (oField) {
                         // Render BO group separator title
                         if (oField._isGroupSeparator) {
-                            var oTitle = new sap.ui.core.Title({ text: oField._boGroupTitle.replace(/_/g, " ").replace(/^LT\s+/i, "") });
+                            var oTitle = new sap.ui.core.Title({ text: oField._boGroupTitle });
                             aFormContent.push(oTitle);
                             return;
                         }
