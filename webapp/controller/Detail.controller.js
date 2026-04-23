@@ -2344,7 +2344,7 @@ sap.ui.define([
                     var bIsDefault = Number(oItem.unitId) === iDefaultUnitId;
                     var bIsCurrent = oItem.symbol === (oCurrentInfo && oCurrentInfo.currentSymbol);
                     var sLabel = oItem.name + " (" + oItem.symbol + ")";
-                    if (bIsDefault) { sLabel += "  ·  Database"; }
+                    if (bIsDefault) { sLabel += "  ·  Default"; }
                     var oListItem = new DisplayListItem({
                         label: sLabel,
                         value: oItem.value + " " + oItem.symbol,
@@ -2403,41 +2403,7 @@ sap.ui.define([
                 this._oUnitPopover = null;
             }
 
-            // Build info toolbar showing Default and Preferred values
-            var aInfoContent = [];
-
-            // Default = field's assigned unit (unitId from the field definition)
-            var oFieldUnit = this._aUnitData.find(function (oU) {
-                return Number(oU.Unit_ID) === iDefaultUnitId;
-            });
-            if (oFieldUnit) {
-                var sFieldUnitSymbol = oFieldUnit.Symbol || oFieldUnit.Name || "";
-                var fFieldGradient = parseFloat(oFieldUnit.Gradient) || 1;
-                var fFieldConstant = parseFloat(oFieldUnit.Constant) || 0;
-                var fFieldValue = vRefValue * fFieldGradient + fFieldConstant;
-                var iFieldDecimals = (oFieldUnit.Decimals !== undefined && oFieldUnit.Decimals !== null) ? Number(oFieldUnit.Decimals) : 5;
-                var sFieldFormatted = fFieldValue.toFixed(iFieldDecimals);
-                aInfoContent.push(new sap.m.Label({ text: "Database:", design: "Bold" }));
-                aInfoContent.push(new sap.m.Text({ text: sFieldFormatted + " " + sFieldUnitSymbol }));
-            }
-
-            // Preferred unit value
-            var oPreferredItem = iPreferredUnitId !== null && iPreferredUnitId !== undefined
-                ? aConvertedItems.find(function (o) { return o.isPreferred; })
-                : null;
-            if (oPreferredItem) {
-                aInfoContent.push(new sap.m.ToolbarSpacer());
-                aInfoContent.push(new sap.m.Label({ text: "Preferred:", design: "Bold" }));
-                aInfoContent.push(new sap.m.Text({ text: oPreferredItem.value + " " + oPreferredItem.symbol }));
-            }
-
-            var aPopoverContent = [];
-            if (aInfoContent.length > 0) {
-                var oInfoBar = new sap.m.Toolbar({ content: aInfoContent });
-                oInfoBar.addStyleClass("uomPopoverInfoBar");
-                aPopoverContent.push(oInfoBar);
-            }
-            aPopoverContent.push(oList);
+            var aPopoverContent = [oList];
 
             this._oUnitPopover = new Popover({
                 title: oUnitInfo.unitTypeName || "Unit Conversions",
