@@ -898,6 +898,19 @@ sap.ui.define([
                             }
                         }
 
+                        // Attach live-change handler to clear mandatory error state as soon as user enters a value
+                        if (oField.required) {
+                            (function (oCtrl) {
+                                var fnClear = function () { self._clearControlError(oCtrl); };
+                                if (oCtrl.attachLiveChange) {
+                                    oCtrl.attachLiveChange(fnClear);
+                                }
+                                if (oCtrl.attachChange) {
+                                    oCtrl.attachChange(fnClear);
+                                }
+                            }(oInput));
+                        }
+
                         // Check if field has a unitId — add unit symbol link
                         var bHasUnit = oField.unitId !== undefined && oField.unitId !== null;
                         var oUnitLink = null;
@@ -1131,10 +1144,12 @@ sap.ui.define([
             // Create appropriate control based on field type
             switch (oField.fieldTypeId) {
                 case 9: // Date field
-                    return new sap.m.DatePicker({
-                        //placeholder: oField.name || oField.fieldName,
-                        displayFormat: "dd MMM yyyy"
+                    var oDatePicker = new sap.m.DatePicker({
+                        displayFormat: "dd MMM yyyy",
+                        showWeekNumbers: true
                     });
+                    this._makeDatePickerOnly(oDatePicker);
+                    return oDatePicker;
                 case 5: // Boolean field
                     return new sap.m.CheckBox({
                         text: ""
@@ -1189,7 +1204,7 @@ sap.ui.define([
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
                     });
-                case 1: // Global table lookups
+                case 1: // Global table look //  Case 1 if needed we need to comebacka nd check here
                     var oSelect = new sap.m.Select({
                         width: "100%"
                     });
@@ -1579,7 +1594,8 @@ sap.ui.define([
                 (typeof vVal === "string" && /^\d{4}-\d{2}-\d{2}/.test(vVal));
 
             if (bIsDateField) {
-                var oDatePicker = new sap.m.DatePicker({ displayFormat: "dd MMM yyyy" });
+                var oDatePicker = new sap.m.DatePicker({ displayFormat: "dd MMM yyyy", showWeekNumbers: true });
+                this._makeDatePickerOnly(oDatePicker);
                 if (vVal !== undefined && vVal !== null && vVal !== "") {
                     var oParsedDate = new Date(vVal);
                     if (!isNaN(oParsedDate.getTime())) {
@@ -2006,7 +2022,12 @@ sap.ui.define([
             }
             this._fieldImageObjectUrl = sSrc;
 
+            // Reset zoom level each time a new image is opened
+            this._fImageZoom = 1.0;
+
             if (!this._oFieldImageDialog) {
+                var self = this;
+
                 this._oFieldImageDialog = new sap.m.Dialog({
                     stretch: false,
                     resizable: true,
@@ -2022,6 +2043,30 @@ sap.ui.define([
                     }.bind(this),
                     buttons: [
                         new sap.m.Button({
+                            icon: "sap-icon://zoom-in",
+                            tooltip: "Zoom In",
+                            press: function () {
+                                self._fImageZoom = Math.min(self._fImageZoom + 0.25, 4.0);
+                                self._applyImageZoom();
+                            }
+                        }),
+                        new sap.m.Button({
+                            icon: "sap-icon://zoom-out",
+                            tooltip: "Zoom Out",
+                            press: function () {
+                                self._fImageZoom = Math.max(self._fImageZoom - 0.25, 0.25);
+                                self._applyImageZoom();
+                            }
+                        }),
+                        new sap.m.Button({
+                            icon: "sap-icon://reset",
+                            tooltip: "Reset Zoom",
+                            press: function () {
+                                self._fImageZoom = 1.0;
+                                self._applyImageZoom();
+                            }
+                        }),
+                        new sap.m.Button({
                             text: "Close",
                             press: function () {
                                 this._oFieldImageDialog.close();
@@ -2032,18 +2077,37 @@ sap.ui.define([
                 this.getView().addDependent(this._oFieldImageDialog);
             }
 
-            // Update title and image each time
-            this._oFieldImageDialog.setTitle(sTitle || "");
+            // Update title and image each time — convert underscores to spaces for display
+            this._oFieldImageDialog.setTitle(sTitle ? sTitle.replace(/_/g, " ") : "");
             this._oFieldImageDialog.destroyContent();
-            this._oFieldImageDialog.addContent(
-                new sap.m.Image({
-                    src: sSrc,
-                    width: "100%",
-                    height: "100%",
-                    densityAware: false
-                })
-            );
+
+            var oScrollContainer = new sap.m.ScrollContainer({
+                horizontal: true,
+                vertical: true,
+                width: "100%",
+                height: "100%"
+            });
+
+            this._oFieldImageEl = new sap.m.Image({
+                id: this.getView().getId() + "--fieldZoomImage",
+                src: sSrc,
+                densityAware: false
+            }).addStyleClass("nexusFieldImage");
+
+            oScrollContainer.addContent(this._oFieldImageEl);
+            this._oFieldImageDialog.addContent(oScrollContainer);
+            this._fImageZoom = 1.0;
             this._oFieldImageDialog.open();
+        },
+
+        _applyImageZoom: function () {
+            if (!this._oFieldImageEl) { return; }
+            var oDomRef = this._oFieldImageEl.getDomRef();
+            if (oDomRef) {
+                oDomRef.style.transform = "scale(" + this._fImageZoom + ")";
+                oDomRef.style.transformOrigin = "top left";
+                oDomRef.style.transition = "transform 0.2s ease";
+            }
         },
         _reapplyColourSwatches: function () {
             var self = this;
@@ -2921,6 +2985,32 @@ sap.ui.define([
                     }
                 }
             }.bind(this));
+        },
+
+        _makeDatePickerOnly: function (oDatePicker) {
+            // Block all character input — user must use the calendar popup only
+            oDatePicker.addEventDelegate({
+                onkeydown: function (oEvent) {
+                    // Allow: Tab(9), Shift(16), Ctrl(17), Alt(18), Escape(27),
+                    //        F4(115), Arrow keys(37-40), Delete(46), Backspace(8)
+                    var iKey = oEvent.keyCode || oEvent.which;
+                    var aAllowed = [8, 9, 16, 17, 18, 27, 37, 38, 39, 40, 46, 115];
+                    if (aAllowed.indexOf(iKey) === -1) {
+                        oEvent.preventDefault();
+                    }
+                }
+            });
+        },
+
+        _clearControlError: function (oControl) {
+            if (!oControl) { return; }
+            if (oControl.setValueState) {
+                oControl.setValueState("None");
+                oControl.setValueStateText("");
+            }
+            if (oControl.removeStyleClass) {
+                oControl.removeStyleClass("mandatoryFieldError");
+            }
         },
 
         _clearFieldValidationErrors: function () {

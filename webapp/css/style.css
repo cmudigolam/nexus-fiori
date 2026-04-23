@@ -1,4 +1,17 @@
 /* Enter your custom styles here */
+
+/* Hide week number column in all date picker calendars */
+.sapUiCalWeekNum {
+    display: none !important;
+}
+
+.nexusFieldImage img {
+    display: block;
+    transform-origin: top left;
+    transition: transform 0.2s ease;
+    max-width: none;
+    max-height: none;
+}
 .sapUxAPObjectPageContainerNoBar>.sapUxAPObjectPageSection:first-child:not(.sapUxAPObjectPageSectionNoTitle) {
     margin-top: 0rem !important;
 }
