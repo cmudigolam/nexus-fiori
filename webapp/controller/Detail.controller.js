@@ -463,7 +463,8 @@ sap.ui.define([
 
             var oCategorizedFields = {};
             var aCategories = Array.isArray(oFormData && oFormData.categories) ? oFormData.categories : [];
-            var aFields = Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [];
+            var aFields = (Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [])
+                .filter(function (oField) { return Number(oField.fieldTypeId) !== 15; });
 
             aCategories.forEach(function (oCategory) {
                 oCategorizedFields[oCategory.name] = [];
@@ -838,8 +839,14 @@ sap.ui.define([
                                 required: oField.required || false
                             });
                             oTitleLabel.addStyleClass("sapUiSmallMarginTop");
+                            var oScrollContainer = new sap.m.ScrollContainer({
+                                horizontal: true,
+                                vertical: false,
+                                width: "100%",
+                                content: [oTable]
+                            });
                             var oVBox = new sap.m.VBox({
-                                items: [oTitleLabel, oTable],
+                                items: [oTitleLabel, oScrollContainer],
                                 visible: bVisible
                             });
                             oVBox.addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginBottom");
@@ -1130,7 +1137,9 @@ sap.ui.define([
                 var oTable = new sap.m.Table({
                     growing: true,
                     growingScrollToLoad: true,
-                    noDataText: "No data"
+                    noDataText: "No data",
+                    autoPopinMode: false,
+                    fixedLayout: false
                 });
                 this._loadSubTableColumns(oTable, oField.subTableId, oField.category);
                 return oTable;
@@ -1149,10 +1158,16 @@ sap.ui.define([
                 case 9: // Date field
                     var oDatePicker = new sap.m.DatePicker({
                         displayFormat: "dd MMM yyyy",
-                        showWeekNumbers: true
+                        showWeekNumbers: false
                     });
                     this._makeDatePickerOnly(oDatePicker);
                     return oDatePicker;
+                case 11: // Date and Time field
+                    return new sap.m.DateTimePicker({
+                        displayFormat: "dd MMM yyyy HH:mm:ss",
+                        showWeekNumbers: false,
+                        width: "100%"
+                    });
                 case 5: // Boolean field
                     return new sap.m.CheckBox({
                         text: ""
@@ -1172,6 +1187,7 @@ sap.ui.define([
                     var oSelect = new sap.m.ComboBox({
                         width: "100%"
                     });
+                    this._makeComboBoxSelectOnly(oSelect);
                     return oSelect;
                 case 40: // Sub-table
                     if (Number(oField.editorTypeId) === 12) {
@@ -1408,7 +1424,8 @@ sap.ui.define([
                         aVisibleFields.forEach(function (oColField) {
                             var sColName = oColField.name || oColField.fieldName || "";
                             oTable.addColumn(new sap.m.Column({
-                                header: new sap.m.Text({ text: sColName })
+                                demandPopin: false,
+                                header: new sap.m.Text({ text: sColName, wrapping: false })
                             }));
                         });
                         // Store only visible field metadata so row cells align with columns
@@ -1599,7 +1616,7 @@ sap.ui.define([
                 (typeof vVal === "string" && /^\d{4}-\d{2}-\d{2}/.test(vVal));
 
             if (bIsDateField) {
-                var oDatePicker = new sap.m.DatePicker({ displayFormat: "dd MMM yyyy", showWeekNumbers: true });
+                var oDatePicker = new sap.m.DatePicker({ displayFormat: "dd MMM yyyy", showWeekNumbers: false });
                 this._makeDatePickerOnly(oDatePicker);
                 if (vVal !== undefined && vVal !== null && vVal !== "") {
                     var oParsedDate = new Date(vVal);
@@ -2327,7 +2344,7 @@ sap.ui.define([
                     var bIsDefault = Number(oItem.unitId) === iDefaultUnitId;
                     var bIsCurrent = oItem.symbol === (oCurrentInfo && oCurrentInfo.currentSymbol);
                     var sLabel = oItem.name + " (" + oItem.symbol + ")";
-                    if (bIsDefault) { sLabel += "  ·  Default"; }
+                    if (bIsDefault) { sLabel += "  ·  Database"; }
                     var oListItem = new DisplayListItem({
                         label: sLabel,
                         value: oItem.value + " " + oItem.symbol,
@@ -2400,7 +2417,7 @@ sap.ui.define([
                 var fFieldValue = vRefValue * fFieldGradient + fFieldConstant;
                 var iFieldDecimals = (oFieldUnit.Decimals !== undefined && oFieldUnit.Decimals !== null) ? Number(oFieldUnit.Decimals) : 5;
                 var sFieldFormatted = fFieldValue.toFixed(iFieldDecimals);
-                aInfoContent.push(new sap.m.Label({ text: "Default:", design: "Bold" }));
+                aInfoContent.push(new sap.m.Label({ text: "Database:", design: "Bold" }));
                 aInfoContent.push(new sap.m.Text({ text: sFieldFormatted + " " + sFieldUnitSymbol }));
             }
 
@@ -3008,6 +3025,37 @@ sap.ui.define([
                     }
                 }
             });
+
+            // Forcefully hide week numbers in the Calendar popup every time it opens.
+            // The property showWeekNumbers:false may not propagate reliably in all Horizon theme versions,
+            // so we directly call setShowWeekNumbers on the internal Calendar after the popup renders.
+            oDatePicker.attachBrowserEvent("click", function () {
+                setTimeout(function () {
+                    // Access internal Calendar control — _oCalendar is the private reference used by sap.m.DatePicker
+                    var oCalendar = oDatePicker._oCalendar;
+                    if (!oCalendar && typeof oDatePicker._getCalendar === "function") {
+                        oCalendar = oDatePicker._getCalendar();
+                    }
+                    if (oCalendar && typeof oCalendar.setShowWeekNumbers === "function") {
+                        oCalendar.setShowWeekNumbers(false);
+                    }
+                }, 0);
+            });
+        },
+
+        _makeComboBoxSelectOnly: function (oComboBox) {
+            // Block all keyboard input so user can only pick from the dropdown list
+            oComboBox.addEventDelegate({
+                onkeydown: function (oEvent) {
+                    // Allow: Tab(9), Shift(16), Ctrl(17), Alt(18), Escape(27),
+                    //        F4(115), Arrow keys(37-40), Delete(46), Backspace(8), Enter(13)
+                    var iKey = oEvent.keyCode || oEvent.which;
+                    var aAllowed = [8, 9, 13, 16, 17, 18, 27, 37, 38, 39, 40, 46, 115];
+                    if (aAllowed.indexOf(iKey) === -1) {
+                        oEvent.preventDefault();
+                    }
+                }
+            });
         },
 
         _clearControlError: function (oControl) {
@@ -3230,13 +3278,21 @@ sap.ui.define([
                             }
                         }
                     } else if (oControl.isA("sap.m.DatePicker")) {
-                        // Use getDateValue() to get the JS Date, then format to yyyy-MM-dd
+                        // Use getDateValue() to get the JS Date
                         var oDate = oControl.getDateValue();
                         if (oDate) {
                             var sYear = oDate.getFullYear();
                             var sMonth = String(oDate.getMonth() + 1).padStart(2, "0");
                             var sDay = String(oDate.getDate()).padStart(2, "0");
-                            oPayload[sFieldKey] = sYear + "-" + sMonth + "-" + sDay;
+                            if (oControl.isA("sap.m.DateTimePicker")) {
+                                // Include time component for DateTimePicker (fieldTypeId 11)
+                                var sHours = String(oDate.getHours()).padStart(2, "0");
+                                var sMins = String(oDate.getMinutes()).padStart(2, "0");
+                                var sSecs = String(oDate.getSeconds()).padStart(2, "0");
+                                oPayload[sFieldKey] = sYear + "-" + sMonth + "-" + sDay + "T" + sHours + ":" + sMins + ":" + sSecs;
+                            } else {
+                                oPayload[sFieldKey] = sYear + "-" + sMonth + "-" + sDay;
+                            }
                         }
                     } else if (oControl.isA("sap.m.CheckBox")) {
                         oPayload[sFieldKey] = oControl.getSelected();
