@@ -45,10 +45,10 @@ sap.ui.define([
             this._sPreviousSelectedNodeId = null;
             this._oNodeInfoIndex = {};
             this._bNodeInfoIndexValid = false; // Track index validity with O(1) flag instead of Object.keys()
-            
+
             // Monitor nodeInfoArray for changes to invalidate index
             var oLocalDataModel = this.getLocalDataModel();
-            this._fnPropertyChangeListener = function(oEvent) {
+            this._fnPropertyChangeListener = function (oEvent) {
                 if (oEvent.getParameter("path") === "/nodeInfoArray") {
                     // Invalidate index when nodeInfoArray changes (O(1) flag instead of reset)
                     this._bNodeInfoIndexValid = false;
@@ -187,18 +187,18 @@ sap.ui.define([
          * Build index map of Full_Location -> node for O(1) lookups
          * @returns {Object} Object with Full_Location as key, node as value
          */
-        _buildNodeInfoIndex: function() {
+        _buildNodeInfoIndex: function () {
             var oLocalDataModel = this.getLocalDataModel();
             var aNodeInfoArray = oLocalDataModel.getProperty("/nodeInfoArray") || [];
             var oIndex = {};
-            
-            aNodeInfoArray.forEach(function(oNode) {
+
+            aNodeInfoArray.forEach(function (oNode) {
                 var sFullLocation = this._getFullLocation(oNode);
                 if (sFullLocation) {
                     oIndex[sFullLocation] = oNode;
                 }
             }.bind(this));
-            
+
             return oIndex;
         },
         onRouteMatched: function () {
@@ -258,15 +258,15 @@ sap.ui.define([
         updateBreadcrumb: function () {
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
-            
+
             // Only rebuild breadcrumb if the selected node changed
             var sCurrentNodeId = oSelectedNode && oSelectedNode.VN_ID;
             if (sCurrentNodeId === this._sPreviousSelectedNodeId) {
                 return; // No change, skip rebuild
             }
-            
+
             this._sPreviousSelectedNodeId = sCurrentNodeId;
-            
+
             var aBreadcrumb = [];
             if (oSelectedNode) {
                 var fullLocation = this._getFullLocation(oSelectedNode);
@@ -275,11 +275,11 @@ sap.ui.define([
                     aBreadcrumb = this._buildBreadcrumbSegments(fullLocation);
                 }
             }
-            
+
             oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
         },
-        
-        onExit: function() {
+
+        onExit: function () {
             // Clean up all property change listeners to prevent memory leaks
             var oLocalDataModel = this.getLocalDataModel();
             if (oLocalDataModel) {
@@ -296,33 +296,33 @@ sap.ui.define([
             var oContext = oEvent.getSource().getBindingContext("LocalDataModel");
             var oData = oContext.getObject();
             var sTargetFullLocation = oData.fullLocation;
-            
+
             if (!sTargetFullLocation) {
                 return;
             }
-            
+
             var oLocalDataModel = this.getLocalDataModel();
-            
+
             // Build or use cached index for O(1) lookup (O(1) validity check instead of Object.keys())
             if (!this._bNodeInfoIndexValid) {
                 this._oNodeInfoIndex = this._buildNodeInfoIndex();
                 this._bNodeInfoIndexValid = true;
             }
-            
+
             // O(1) lookup instead of O(n) linear search
             var oNode = this._oNodeInfoIndex[sTargetFullLocation];
-            
+
             if (!oNode || !oNode.CV_ID || !oNode.CT_ID) {
                 return;
             }
-            
+
             oLocalDataModel.setProperty("/selectedNodeData", oNode);
-            
+
             // Tell Master to focus/select this node in the tree
             sap.ui.getCore().getEventBus().publish("Master", "FocusNodeFromBreadcrumb", {
                 nodeData: oNode
             });
-            
+
             // Trigger same action as node selection
             this.fetchDetailTiles(oNode.CT_ID, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
         },
@@ -581,7 +581,7 @@ sap.ui.define([
 
             // Find all fields that are foreign-table references
             var aForeignFields = aFields.filter(function (oField) {
-                return oField.fieldTypeId === 19  && oField.foreignTableId;
+                return oField.fieldTypeId === 19 && oField.foreignTableId;
             });
 
             if (aForeignFields.length === 0) {
@@ -608,6 +608,9 @@ sap.ui.define([
                         // (from the parent /bo/ response, e.g. "Material" field carries:
                         //   nestedField.businessObjectName = "LT_Material_Selection__Piping_"
                         //   nestedField.fieldName          = "Material_Selection__Piping__ID")
+                        aResponseFields.forEach((val) => { // override fieldTypeId to force form control generation for expanded fields
+                            val.fieldTypeId = 57
+                        });
                         var oNestedField = oForeignField.nestedField;
                         var sBusinessObjectName = oNestedField && oNestedField.businessObjectName;
                         var sFilterField = oNestedField && oNestedField.fieldName;
@@ -645,7 +648,7 @@ sap.ui.define([
                                         // Step 2: call /bo/{businessObjectName} to load all data (no filter)
                                         // e.g. /bo/LT_Material_Selection__Piping_
                                         $.ajax({
-                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sBusinessObjectName)+"/",
+                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sBusinessObjectName) + "/",
                                             "method": "GET",
                                             "dataType": "json",
                                             "data": { "hash": sResolvedHash, "pagesize": 1000 },
@@ -1188,7 +1191,7 @@ sap.ui.define([
                         this._nestedLookupFieldMap = this._nestedLookupFieldMap || {};
                         this._nestedLookupFieldMap[oField.fieldName] = oField.nestedField.lookupListId;
                     } else if (oField.nestedField && oField.nestedField.foreignTableId &&
-                               oField.nestedField.nestedField && oField.nestedField.nestedField.businessObjectName) {
+                        oField.nestedField.nestedField && oField.nestedField.nestedField.businessObjectName) {
                         this._nestedForeignKeyFieldMap = this._nestedForeignKeyFieldMap || {};
                         this._nestedForeignKeyFieldMap[oField.fieldName] = {
                             businessObjectName: oField.nestedField.nestedField.businessObjectName,
@@ -1204,7 +1207,7 @@ sap.ui.define([
                         //placeholder: oField.name || oField.fieldName,
                         enabled: false
                     });
-                case 1: // Global table look //  Case 1 if needed we need to comebacka nd check here
+                case 57: // Global table look //  Case 1 if needed we need to comebacka nd check here
                     var oSelect = new sap.m.Select({
                         width: "100%"
                     });
@@ -1243,6 +1246,8 @@ sap.ui.define([
                             return sA < sB ? -1 : sA > sB ? 1 : 0;
                         });
                         oSelect.removeAllItems();
+                        // Add empty option as first item so users can clear the selection
+                        oSelect.addItem(new Item({ key: "", text: "" }));
                         aItems.forEach(function (oItem) {
                             // Use LI_ID as the key (internal identifier stored in database)
                             var sKey = (oItem.LI_ID !== undefined && oItem.LI_ID !== null)
@@ -1690,8 +1695,8 @@ sap.ui.define([
             var fnFetchData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
-                    "url":  self.isRunninglocally()+"/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
-                   "method": "GET",
+                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
+                    "method": "GET",
                     "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/" + encodeURIComponent(sComponentId),
                     "method": "GET",
                     "dataType": "json",
@@ -1953,21 +1958,21 @@ sap.ui.define([
                         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
                     }
                 })
-                .then(function (oResponse) {
-                    if (!oResponse.ok) {
-                        MessageToast.show("Image not available");
-                        return null;
-                    }
-                    return oResponse.blob();
-                })
-                .then(function (oBlob) {
-                    if (!oBlob) { return; }
-                    var sObjectUrl = URL.createObjectURL(oBlob);
-                    self._showFieldImagePopup(sObjectUrl, sFieldKey);
-                })
-                .catch(function () {
-                    MessageToast.show("Failed to load image");
-                });
+                    .then(function (oResponse) {
+                        if (!oResponse.ok) {
+                            MessageToast.show("Image not available");
+                            return null;
+                        }
+                        return oResponse.blob();
+                    })
+                    .then(function (oBlob) {
+                        if (!oBlob) { return; }
+                        var sObjectUrl = URL.createObjectURL(oBlob);
+                        self._showFieldImagePopup(sObjectUrl, sFieldKey);
+                    })
+                    .catch(function () {
+                        MessageToast.show("Failed to load image");
+                    });
             };
 
             if (sHash) {
@@ -2542,7 +2547,7 @@ sap.ui.define([
             var oMatchInfo = this._linkedFieldMatchInfo && this._linkedFieldMatchInfo[sBusinessObjectName];
             var oMatchedRow = null;
             if (oMatchInfo && oMatchInfo.filterField && oMatchInfo.linkValue !== undefined) {
-                oMatchedRow = aRows.find(function(oRow) {
+                oMatchedRow = aRows.find(function (oRow) {
                     return String(oRow[oMatchInfo.filterField]) === String(oMatchInfo.linkValue);
                 });
             }
@@ -2870,8 +2875,11 @@ sap.ui.define([
                             var oDisplayUnit = self._aUnitData && self._aUnitData.find(function (oU) {
                                 return oU.Symbol === oUnitFieldInfo.currentSymbol;
                             });
-                            var iDecimals = (oDisplayUnit && oDisplayUnit.Decimals !== undefined && oDisplayUnit.Decimals !== null)
+                            var iUnitDecimals = (oDisplayUnit && oDisplayUnit.Decimals !== undefined && oDisplayUnit.Decimals !== null)
                                 ? Number(oDisplayUnit.Decimals) : 5;
+                            // Preserve all decimal places from the raw value — do not truncate beyond what the server returned
+                            var iActualDecimals = (String(vValue).split(".")[1] || "").length;
+                            var iDecimals = Math.max(iUnitDecimals, iActualDecimals);
                             sDisplayValue = fConverted.toFixed(iDecimals);
                         }
                     }
@@ -3063,6 +3071,7 @@ sap.ui.define([
                         if (!bIsValid) {
                             aValidationErrors.push({
                                 field: sFieldKey,
+                                label: oField.name || oField.fieldName || sFieldKey,
                                 message: self.getResourceBundle().getText("msgFieldRequired")
                             });
                         }
@@ -3167,7 +3176,8 @@ sap.ui.define([
                         }
                     }
                 }
-                MessageToast.show(self.getResourceBundle().getText("msgFieldsRequireAttention", [aValidationErrors.length]));
+                var aFieldNames = aValidationErrors.map(function (e) { return e.label || e.field; });
+                MessageToast.show(self.getResourceBundle().getText("msgFieldsRequireAttention", [aValidationErrors.length]) + "\n" + aFieldNames.join(", "), { duration: 4000 });
                 return;
             }
             // Collect form field values from _fieldControlMap (only non-empty values)
