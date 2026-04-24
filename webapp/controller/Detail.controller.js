@@ -1174,6 +1174,29 @@ sap.ui.define([
                     return new sap.m.CheckBox({
                         text: ""
                     });
+                case 3: // Integer / Whole number field (no decimals)
+                    var oIntInput = new sap.m.Input({
+                        type: "Number",
+                        liveChange: function (oEvent) {
+                            var oInput = oEvent.getSource();
+                            var sVal = oInput.getValue();
+                            // Strip decimals and any non-integer characters (allow leading minus)
+                            var sClean = sVal.replace(/[^0-9\-]/g, "").replace(/(?!^)-/g, "");
+                            if (sVal !== sClean) {
+                                oInput.setValue(sClean);
+                            }
+                        }
+                    });
+                    oIntInput.addEventDelegate({
+                        onkeydown: function (oEvent) {
+                            // Block decimal point keys: . (190), numpad . (110), , (188)
+                            if (oEvent.key === "." || oEvent.key === "," ||
+                                oEvent.keyCode === 190 || oEvent.keyCode === 110 || oEvent.keyCode === 188) {
+                                oEvent.preventDefault();
+                            }
+                        }
+                    });
+                    return oIntInput;
                 case 6: // Numeric field
                     return new sap.m.Input({
                         type: "Number",
