@@ -77,6 +77,7 @@ sap.ui.define([
             this.setBusyOn();
             this._masterSessionState = null;
             this.getLocalDataModel().setProperty("/treeTable", []);
+            this.getLocalDataModel().setProperty("/treeTableNoDataText", this.getResourceBundle().getText("msgSelectAssetToView"));
             // Calculate initial visible rows based on window height
             var iRows = Math.max(5, Math.floor((window.innerHeight - 240) / 33));
             this.getLocalDataModel().setProperty("/treeTableVisibleRows", iRows);
@@ -415,6 +416,7 @@ sap.ui.define([
                     });
                     this.getLocalDataModel().setProperty("/treeList", aTreeList);
                     if (aTreeList.length > 0) {
+                        this.getLocalDataModel().setProperty("/treeTableNoDataText", this.getResourceBundle().getText("msgSelectAssetToView"));
                         // Preserve previously selected asset if it still exists in the list
                         var sPreviousKey = this.getLocalDataModel().getProperty("/selectedNode");
                         var sSessionKey = this._masterSessionState && this._masterSessionState.activeView;
@@ -890,6 +892,7 @@ sap.ui.define([
                     var aRows = Array.isArray(response && response.rows) ? response.rows : [];
                     aRows = this._mapTreeRows(aRows);
                     this.getLocalDataModel().setProperty("/treeTable", aRows);
+                    this.getLocalDataModel().setProperty("/treeTableNoDataText", aRows.length ? "" : this.getResourceBundle().getText("msgNoAssetsAvailable"));
 
                     // If a traffic light overlay is selected, check the web API response for TrafficLight
                     // values, compare Component_ID from it with View_Node Component_IDs, and display

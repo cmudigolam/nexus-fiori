@@ -45,7 +45,7 @@
                     class="assetTreeTable"
                     rows="{path:'LocalDataModel>/treeTable', parameters:{arrayNames:['rows']}}"
                     alternateRowColors="true"
-                    noData="{i18n>msgSelectAssetToView}"
+                    noData="{LocalDataModel>/treeTableNoDataText}"
                     selectionMode="Single"
                     selectionBehavior="RowOnly"
                     rowSelectionChange="onRowSelect"
