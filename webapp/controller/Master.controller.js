@@ -481,11 +481,40 @@ sap.ui.define([
             var oRowIndexMap = this._buildRowIndexMap(oTreeTable);
             if (oRowIndexMap.hasOwnProperty(sTargetFullLocation)) {
                 var iRowIndex = oRowIndexMap[sTargetFullLocation];
+                this._collapseNonAncestors(sTargetFullLocation, oTreeTable);
+                // Explicitly collapse the target node if it's expanded
+                if (oTreeTable.isExpanded(iRowIndex)) {
+                    oTreeTable.collapse(iRowIndex);
+                }
                 this._selectAndRevealRow(oTreeTable, iRowIndex);
                 return;
             }
             
+            // Collapse all non-ancestor branches before expanding the path to the breadcrumb node
+            this._collapseNonAncestors(sTargetFullLocation, oTreeTable);
             this._expandPathToNode(sTargetFullLocation, oTreeTable);
+        },
+        
+        /**
+         * Collapse all rows that are not ancestors of the target location.
+         * This ensures only the path to the target node is expanded, preventing orphaned expanded branches.
+         * @param {string} sTargetFullLocation - Full location path of the target node
+         * @param {Object} oTreeTable - TreeTable control
+         */
+        _collapseNonAncestors: function (sTargetFullLocation, oTreeTable) {
+            if (!oTreeTable || !sTargetFullLocation) return;
+            var aSegments = this._getPathSegments(sTargetFullLocation);
+            if (!aSegments || aSegments.length === 0) return;
+            var oAncestors = {};
+            for (var i = 0; i < aSegments.length - 1; i++) { // Exclude target node itself
+                oAncestors[aSegments.slice(0, i + 1).join(" / ")] = true;
+            }
+            var oMap = this._buildRowIndexMap(oTreeTable);
+            Object.keys(oMap).forEach(function (sPath) {
+                if (!oAncestors[sPath] && oTreeTable.isExpanded(oMap[sPath])) {
+                    oTreeTable.collapse(oMap[sPath]);
+                }
+            });
         },
         
         /**

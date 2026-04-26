@@ -275,8 +275,9 @@ sap.ui.define([
                     aBreadcrumb = this._buildBreadcrumbSegments(fullLocation);
                 }
             }
-
-            oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
+            //oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
+            oLocalDataModel.setProperty("/breadcrumbLinks", aBreadcrumb.slice(0, -1));
+            oLocalDataModel.setProperty("/breadcrumbCurrent", aBreadcrumb[aBreadcrumb.length - 1]?.name || "");
         },
 
         onExit: function () {
