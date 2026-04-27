@@ -11,7 +11,7 @@
                     <Title text="{i18n>lblAssetDetails}" wrapping="true" />
                 </uxap:heading>
                 <uxap:expandedContent>
-                    <ObjectStatus text="{= ${LocalDataModel>/selectedNodeData/Name} || '${i18n>lblNoAssetSelected}'}" />
+                    <ObjectStatus text="{= ${LocalDataModel>/selectedNodeData/Name} ? ${LocalDataModel>/selectedNodeData/Name} : ${i18n>lblNoAssetSelected} }" />
                 </uxap:expandedContent>
                 <uxap:actions>
                     <OverflowToolbarButton id="shareBtn" type="Transparent" icon="sap-icon://action" press="onSharePress" tooltip="{LocalDataModel>/shareUrl}" />

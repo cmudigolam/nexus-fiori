@@ -780,7 +780,7 @@ sap.ui.define([
             var oContext = oTreeTable.getContextByIndex(iIndex);
             if (oContext) {
                 var oRow = oContext.getProperty(oContext.getPath());
-                if (oRow && oRow.CT_ID) {
+                if (oRow) {
                     this._applySelectedRowState(oRow, false);
                 }
             }
@@ -840,35 +840,7 @@ sap.ui.define([
         },
 
         _restoreInitialTreeSelection: function (oTreeTable, aRows) {
-            if (!oTreeTable || !Array.isArray(aRows) || aRows.length === 0) {
-                return;
-            }
-
-            var iInitialIndex = this._getInitialSelectedRowIndex(aRows);
-            if (iInitialIndex > -1) {
-                this._selectRowByIndex(oTreeTable, iInitialIndex);
-                return;
-            }
-
-            var sFocusedId = this._masterSessionState && (this._masterSessionState.focusedRow || this._masterSessionState.selectedItems);
-            // Need to call View_Node by VN_ID to resolve Full_Location before expanding the tree.
-            if (sFocusedId && sFocusedId !== "-1") {
-                this._resolveFocusedPathByVnId(sFocusedId, function (sFocusedPath) {
-                    if (sFocusedPath) {
-                        this._expandPathToNode(sFocusedPath, oTreeTable, function (oTargetRow) {
-                            if (oTargetRow && oTargetRow.CT_ID) {
-                                this._applySelectedRowState(oTargetRow, false);
-                            }
-                        }.bind(this));
-                        return;
-                    }
-
-                    this._selectRowByIndex(oTreeTable, 0);
-                }.bind(this));
-                return;
-            }
-
-            this._selectRowByIndex(oTreeTable, 0);
+            // No auto-selection on load — user must explicitly click a node.
         },
 
         _loadRootNodes: function (oSelectedNode) {
@@ -876,7 +848,25 @@ sap.ui.define([
                 return;
             }
             var self = this;
-            this.getLocalDataModel().setProperty("/selectedNodeData", oSelectedNode || null);
+            var oLocalDataModel = this.getLocalDataModel();
+
+            // Switching asset view must clear stale detail content and cached node selections
+            // before the new hierarchy is loaded.
+            oLocalDataModel.setProperty("/selectedNodeData", null);
+            oLocalDataModel.setProperty("/detailTiles", []);
+            oLocalDataModel.setProperty("/detailTileGroups", []);
+            oLocalDataModel.setProperty("/breadcrumb", []);
+            oLocalDataModel.setProperty("/nodeInfoArray", []);
+
+            // Keep duplicate tracking map in sync with nodeInfoArray reset.
+            this._nodeInfoMap = {};
+            this._bNodeInfoMapValid = false;
+
+            var oTreeTable = this.byId("TreeTableBasic");
+            if (oTreeTable) {
+                oTreeTable.clearSelection();
+            }
+
             this.setBusyOn();
             $.ajax({
                 "url":  self.isRunninglocally()+ "/bo/View_Node/",
@@ -911,7 +901,7 @@ sap.ui.define([
                     }.bind(this));
                     
                     // Collapse all root nodes after the TreeTable has processed the new data
-                    var oTreeTable = this.byId("TreeTableBasic");
+                    oTreeTable = this.byId("TreeTableBasic");
                     if (oTreeTable) {
                         oTreeTable.attachEventOnce("rowsUpdated", function () {
                             oTreeTable.collapseAll();
@@ -943,7 +933,7 @@ sap.ui.define([
                 return;
             }
             var oSelectedRow = oContext.getProperty(oContext.getPath());
-            if (!oSelectedRow || !oSelectedRow.CT_ID) {
+            if (!oSelectedRow) {
                 return;
             }
 
@@ -951,7 +941,7 @@ sap.ui.define([
         },
 
         _applySelectedRowState: function (oSelectedRow, bPersistSelection) {
-            if (!oSelectedRow || !oSelectedRow.CT_ID) {
+            if (!oSelectedRow) {
                 return;
             }
 
@@ -974,7 +964,17 @@ sap.ui.define([
                 oLocalDataModel.setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
             }
 
-            this.fetchDetailTiles(sCtId, sCompoonentID, this.hash);
+            if (sCtId) {
+                this.fetchDetailTiles(sCtId, sCompoonentID, this.hash);
+            } else {
+                // Nodes without asset type: clear dynamic tiles but still activate the Detail panel.
+                oLocalDataModel.setProperty("/detailTiles", []);
+                oLocalDataModel.setProperty("/detailTileGroups", []);
+                var oNextUIState = this.getOwnerComponent().getHelper().getNextUIState(1);
+                this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
+                this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
+                this.setBusyOff();
+            }
             // Publish event to update breadcrumbs in Detail controller only after row selection
             sap.ui.getCore().getEventBus().publish("Detail", "UpdateBreadcrumb");
 

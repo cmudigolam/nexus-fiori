@@ -206,47 +206,6 @@ sap.ui.define([
             var oLocalDataModel = this.getLocalDataModel();
             var oSelectedNode = oLocalDataModel.getProperty("/selectedNodeData");
 
-            // If no asset is selected, select the first one by default
-            if (!oSelectedNode) {
-                var aNodeInfoArray = oLocalDataModel.getProperty("/nodeInfoArray");
-
-                if (aNodeInfoArray && aNodeInfoArray.length > 0) {
-                    oSelectedNode = aNodeInfoArray[0];
-                    oLocalDataModel.setProperty("/selectedNodeData", oSelectedNode);
-
-                    // Update breadcrumb for the first asset
-                    this.updateBreadcrumb();
-
-                    // Fetch detail tiles for the first asset
-                    if (oSelectedNode.CT_ID) {
-                        var sHash = oLocalDataModel.getProperty("/HashToken");
-                        this.fetchDetailTiles(oSelectedNode.CT_ID, oSelectedNode.Component_ID, sHash);
-                    }
-                } else {
-                    // Set up a listener to auto-select when data becomes available
-                    this._fnDetailAutoSelectListener = function (oEvent) {
-                        if (oEvent.getParameter("path") === "/nodeInfoArray") {
-                            var aNewArray = oEvent.getParameter("value");
-                            if (aNewArray && aNewArray.length > 0) {
-                                var oFirstNode = aNewArray[0];
-                                var oCurrentSelected = oLocalDataModel.getProperty("/selectedNodeData");
-                                if (!oCurrentSelected) {
-                                    oLocalDataModel.setProperty("/selectedNodeData", oFirstNode);
-                                    this.updateBreadcrumb();
-                                    if (oFirstNode.CT_ID) {
-                                        var sHash = oLocalDataModel.getProperty("/HashToken");
-                                        this.fetchDetailTiles(oFirstNode.CT_ID, oFirstNode.Component_ID, sHash);
-                                    }
-                                }
-                                // Remove this listener after it fires once
-                                oLocalDataModel.detachPropertyChange(this._fnDetailAutoSelectListener);
-                            }
-                        }
-                    }.bind(this);
-                    oLocalDataModel.attachPropertyChange(this._fnDetailAutoSelectListener);
-                }
-            }
-
             // Update share URL in model for tooltip binding
             if (oSelectedNode && oSelectedNode.VN_ID) {
                 oLocalDataModel.setProperty("/shareUrl", "https://trial.nexusic.com/?searchKey=Asset&searchValue=" + oSelectedNode.VN_ID);
@@ -313,7 +272,7 @@ sap.ui.define([
             // O(1) lookup instead of O(n) linear search
             var oNode = this._oNodeInfoIndex[sTargetFullLocation];
 
-            if (!oNode || !oNode.CV_ID || !oNode.CT_ID) {
+            if (!oNode || !oNode.CV_ID) {
                 return;
             }
 
@@ -325,7 +284,16 @@ sap.ui.define([
             });
 
             // Trigger same action as node selection
-            this.fetchDetailTiles(oNode.CT_ID, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
+            if (oNode.CT_ID) {
+                this.fetchDetailTiles(oNode.CT_ID, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
+            } else {
+                oLocalDataModel.setProperty("/detailTiles", []);
+                oLocalDataModel.setProperty("/detailTileGroups", []);
+                var oNextUIState = this.getOwnerComponent().getHelper().getNextUIState(1);
+                this.getRouter()._oRoutes.Detail._oConfig.layout = "TwoColumnsMidExpanded";
+                this.getRouter().navTo("Detail", { layout: oNextUIState.layout });
+                this.setBusyOff();
+            }
         },
         onTilePress: function (oEvent) {
             var self = this;
