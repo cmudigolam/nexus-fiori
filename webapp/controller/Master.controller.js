@@ -132,6 +132,12 @@ sap.ui.define([
                 "data": { "hash": sHash },
                 "success": function (response) {
                     var aList = Array.isArray(response && response.rows) ? response.rows : [];
+                    // Sort alphabetically by Name (case-insensitive) before prepending empty entry
+                    aList.sort(function (a, b) {
+                        var sA = String(a.Name || "").toLowerCase();
+                        var sB = String(b.Name || "").toLowerCase();
+                        return sA < sB ? -1 : sA > sB ? 1 : 0;
+                    });
                     // Prepend an empty record so selecting it hides the T column and footer
                     aList = [{ CO_ID: "", Name: "" }].concat(aList);
                     var sSavedTrafficLight = self._masterSessionState && self._masterSessionState.trafficLight;
@@ -245,8 +251,31 @@ sap.ui.define([
                         // and read the freshly updated _trafficLightColorMap.
                         var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
                         oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
-                        self._updateLegendFooter();
-                        self.setBusyOff();
+                        // Call GET API to fetch legend definitions; if it returns rows use those
+                        // for the footer legend, otherwise fall back to the POST-derived legend.
+                        $.ajax({
+                            "url": self.isRunninglocally() + "/web/?hash=" + encodeURIComponent(sHash) + "&metaTable=TrafficLightValues&requestType=getTrafficLight&trafficlightKey=" + encodeURIComponent(sTrafficLightKey),
+                            "method": "GET",
+                            "dataType": "json",
+                            "success": function (getLegendResponse) {
+                                var aLegendRows = [];
+                                if (Array.isArray(getLegendResponse && getLegendResponse.Rows)) {
+                                    aLegendRows = getLegendResponse.Rows;
+                                } else if (Array.isArray(getLegendResponse && getLegendResponse.rows)) {
+                                    aLegendRows = getLegendResponse.rows;
+                                }
+                                if (aLegendRows.length > 0) {
+                                    self._updateLegendFooterFromRows(aLegendRows);
+                                } else {
+                                    self._updateLegendFooter();
+                                }
+                                self.setBusyOff();
+                            },
+                            "error": function () {
+                                self._updateLegendFooter();
+                                self.setBusyOff();
+                            }
+                        });
                     },
                     "error": function () {
                         self.setBusyOff();
@@ -338,13 +367,13 @@ sap.ui.define([
          * Shows one colored dot + label per unique (color, legendName) pair found in the map.
          */
         _updateLegendFooter: function () {
-            var oToolbar = this.byId("trafficLightLegendBar");
-            if (!oToolbar) { return; }
+            var oFlex = this.byId("trafficLightLegendFlex");
+            if (!oFlex) { return; }
 
             // Remove all items except the static "Legend:" Text (first item)
-            var aContent = oToolbar.getContent();
-            for (var i = aContent.length - 1; i >= 1; i--) {
-                oToolbar.removeContent(aContent[i]);
+            var aItems = oFlex.getItems();
+            for (var i = aItems.length - 1; i >= 1; i--) {
+                oFlex.removeItem(aItems[i]);
             }
 
             var oMap = this._trafficLightColorMap || {};
@@ -371,19 +400,80 @@ sap.ui.define([
                 return;
             }
 
-            aUnique.forEach(function (oEntry, iIdx) {
-                if (iIdx > 0) {
-                    oToolbar.addContent(new sap.m.ToolbarSeparator());
+            aUnique.forEach(function (oEntry) {
+                oFlex.addItem(
+                    new sap.m.HBox({
+                        alignItems: "Center",
+                        items: [
+                            new sap.ui.core.Icon({
+                                src: "sap-icon://circle-task-2",
+                                size: "1rem",
+                                color: oEntry.color,
+                                useIconTooltip: false
+                            }),
+                            new sap.m.Text({
+                                text: oEntry.legendName || ""
+                            }).addStyleClass("sapUiSmallMarginBegin")
+                        ]
+                    }).addStyleClass("sapUiSmallMarginBegin sapUiTinyMarginTopBottom")
+                );
+            });
+
+            this.getLocalDataModel().setProperty("/trafficLightFooterVisible", true);
+        },
+
+        _updateLegendFooterFromRows: function (aRows) {
+            var self = this;
+            var oFlex = this.byId("trafficLightLegendFlex");
+            if (!oFlex) { return; }
+
+            // Remove all items except the static "Legend:" Text (first item)
+            var aItems = oFlex.getItems();
+            for (var i = aItems.length - 1; i >= 1; i--) {
+                oFlex.removeItem(aItems[i]);
+            }
+
+            function unwrap(v) { return (v !== null && v !== undefined && typeof v === "object" && "value" in v) ? v.value : v; }
+
+            var aUnique = [];
+            aRows.forEach(function (oRow) {
+                var sName = String(unwrap(oRow.Name) !== null && unwrap(oRow.Name) !== undefined ? unwrap(oRow.Name) : "");
+                var vColour = unwrap(oRow.Colour);
+                if (vColour !== null && vColour !== undefined && vColour !== "") {
+                    var sHex = isNaN(Number(vColour)) ? String(vColour) : self._tcolorToHex(Number(vColour));
+                    if (sHex) {
+                        aUnique.push({ color: sHex, legendName: sName });
+                    }
                 }
-                oToolbar.addContent(new sap.ui.core.Icon({
-                    src: "sap-icon://circle-task-2",
-                    size: "1rem",
-                    color: oEntry.color,
-                    useIconTooltip: false
-                }));
-                oToolbar.addContent(new sap.m.Text({
-                    text: oEntry.legendName || ""
-                }));
+            });
+
+            if (!aUnique.length) {
+                this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
+                return;
+            }
+
+            // Sort legend entries alphabetically by legendName for consistent display
+            aUnique.sort(function (a, b) {
+                return (a.legendName || "").localeCompare(b.legendName || "");
+            });
+
+            aUnique.forEach(function (oEntry) {
+                oFlex.addItem(
+                    new sap.m.HBox({
+                        alignItems: "Center",
+                        items: [
+                            new sap.ui.core.Icon({
+                                src: "sap-icon://circle-task-2",
+                                size: "1rem",
+                                color: oEntry.color,
+                                useIconTooltip: false
+                            }),
+                            new sap.m.Text({
+                                text: oEntry.legendName || ""
+                            }).addStyleClass("sapUiSmallMarginBegin")
+                        ]
+                    }).addStyleClass("sapUiSmallMarginBegin sapUiTinyMarginTopBottom")
+                );
             });
 
             this.getLocalDataModel().setProperty("/trafficLightFooterVisible", true);

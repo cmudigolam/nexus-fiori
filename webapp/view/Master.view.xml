@@ -84,9 +84,11 @@
             </VBox>
         </f:content>
         <f:footer>
-            <OverflowToolbar id="trafficLightLegendBar" style="Clear">
-                <Text text="Legend:" class="sapUiSmallMarginBegin" />
-            </OverflowToolbar>
+            <Toolbar id="trafficLightLegendBar" style="Clear" height="auto">
+                <FlexBox id="trafficLightLegendFlex" wrap="Wrap" alignItems="Center" width="100%">
+                    <Text text="Legend:" class="sapUiSmallMarginBegin sapUiSmallMarginEnd" />
+                </FlexBox>
+            </Toolbar>
         </f:footer>
     </f:DynamicPage>
 </mvc:View>
