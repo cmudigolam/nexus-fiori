@@ -572,35 +572,61 @@ sap.ui.define([
 
         focusNodeInTree: function (sChannel, sEvent, oData) {
             var oNode = oData && oData.nodeData;
-            if (!oNode || !oNode.CV_ID) {
-                return;
-            }
-            
-            var sTargetFullLocation = this._getFullLocation(oNode);
+            var sTargetFullLocation = (oData && oData.fullLocation) || (oNode && this._getFullLocation(oNode));
+            var sTargetAsset = (oData && oData.CV_ID) || (oNode && oNode.CV_ID);
+            var bIsBreadcrumbClick = sChannel === "Master" && sEvent === "FocusNodeFromBreadcrumb";
             if (!sTargetFullLocation) {
                 return;
             }
-            
+
+            var oLocalDataModel = this.getLocalDataModel();
+            var sCurrentAsset = oLocalDataModel.getProperty("/selectedNode");
+            if (sTargetAsset && String(sTargetAsset) !== String(sCurrentAsset)) {
+                var self = this;
+                var aTreeList = oLocalDataModel.getProperty("/treeList") || [];
+                var oAssetItem = null;
+                for (var i = 0; i < aTreeList.length; i++) {
+                    if (String(aTreeList[i].CV_ID) === String(sTargetAsset)) {
+                        oAssetItem = aTreeList[i];
+                        break;
+                    }
+                }
+                if (oAssetItem) {
+                    oLocalDataModel.setProperty("/selectedNode", sTargetAsset);
+                    this._loadRootNodes(oAssetItem, function () {
+                        self.focusNodeInTree(sChannel, sEvent, oData);
+                    });
+                    return;
+                }
+            }
+
             var oTreeTable = this.byId("TreeTableBasic");
             if (!oTreeTable) {
                 return;
             }
-            
+
             var oRowIndexMap = this._buildRowIndexMap(oTreeTable);
             if (oRowIndexMap.hasOwnProperty(sTargetFullLocation)) {
                 var iRowIndex = oRowIndexMap[sTargetFullLocation];
                 this._collapseNonAncestors(sTargetFullLocation, oTreeTable);
-                // Explicitly collapse the target node if it's expanded
-                if (oTreeTable.isExpanded(iRowIndex)) {
+                this._selectRowByIndex(oTreeTable, iRowIndex);
+                // For breadcrumb clicks, collapse the target node's children to show the target only
+                if (bIsBreadcrumbClick && oTreeTable.isExpanded(iRowIndex)) {
                     oTreeTable.collapse(iRowIndex);
                 }
-                this._selectAndRevealRow(oTreeTable, iRowIndex);
                 return;
             }
-            
+
             // Collapse all non-ancestor branches before expanding the path to the breadcrumb node
             this._collapseNonAncestors(sTargetFullLocation, oTreeTable);
-            this._expandPathToNode(sTargetFullLocation, oTreeTable);
+            var self = this;
+            this._expandPathToNode(sTargetFullLocation, oTreeTable, function (oTargetRow, iTargetIndex) {
+                self._selectRowByIndex(oTreeTable, iTargetIndex);
+                // For breadcrumb clicks, collapse the target node's children after selection
+                if (bIsBreadcrumbClick && oTreeTable.isExpanded(iTargetIndex)) {
+                    oTreeTable.collapse(iTargetIndex);
+                }
+            });
         },
         
         /**
@@ -614,7 +640,7 @@ sap.ui.define([
             var aSegments = this._getPathSegments(sTargetFullLocation);
             if (!aSegments || aSegments.length === 0) return;
             var oAncestors = {};
-            for (var i = 0; i < aSegments.length - 1; i++) { // Exclude target node itself
+            for (var i = 0; i < aSegments.length; i++) { // Preserve the target node as well as its ancestors
                 oAncestors[aSegments.slice(0, i + 1).join(" / ")] = true;
             }
             var oMap = this._buildRowIndexMap(oTreeTable);
@@ -803,7 +829,7 @@ sap.ui.define([
                 var oMap = self._buildRowIndexMap(oTreeTable);
                 if (oMap.hasOwnProperty(sTargetFullLocation)) {
                     var iTargetIndex = oMap[sTargetFullLocation];
-                    self._selectAndRevealRow(oTreeTable, iTargetIndex);
+                    self._selectRowByIndex(oTreeTable, iTargetIndex);
                     if (typeof fnAfterSelect === "function") {
                         var oTargetContext = oTreeTable.getContextByIndex(iTargetIndex);
                         var oTargetRow = oTargetContext ? oTargetContext.getProperty(oTargetContext.getPath()) : null;
@@ -949,8 +975,11 @@ sap.ui.define([
             // No auto-selection on load — user must explicitly click a node.
         },
 
-        _loadRootNodes: function (oSelectedNode) {
+        _loadRootNodes: function (oSelectedNode, fnAfterLoad) {
             if (!oSelectedNode || !oSelectedNode.CV_ID) {
+                if (typeof fnAfterLoad === "function") {
+                    fnAfterLoad([]);
+                }
                 return;
             }
             var self = this;
@@ -1012,7 +1041,12 @@ sap.ui.define([
                         oTreeTable.attachEventOnce("rowsUpdated", function () {
                             oTreeTable.collapseAll();
                             this._restoreInitialTreeSelection(oTreeTable, aRows);
+                            if (typeof fnAfterLoad === "function") {
+                                fnAfterLoad(aRows);
+                            }
                         }.bind(this));
+                    } else if (typeof fnAfterLoad === "function") {
+                        fnAfterLoad(aRows);
                     }
                     // When a traffic light fetch is triggered it calls setBusyOn synchronously;
                     // calling setBusyOff here would turn the indicator off before that fetch

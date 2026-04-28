@@ -231,7 +231,11 @@ sap.ui.define([
                 var fullLocation = this._getFullLocation(oSelectedNode);
                 if (fullLocation) {
                     // Build breadcrumb using shared utility method from BaseController
-                    aBreadcrumb = this._buildBreadcrumbSegments(fullLocation);
+                    aBreadcrumb = this._buildBreadcrumbSegments(fullLocation).map(function (segment) {
+                        return Object.assign({}, segment, {
+                            CV_ID: oSelectedNode.CV_ID
+                        });
+                    });
                 }
             }
             //oLocalDataModel.setProperty("/breadcrumb", aBreadcrumb);
@@ -262,6 +266,8 @@ sap.ui.define([
             }
 
             var oLocalDataModel = this.getLocalDataModel();
+            var sTargetAsset = oData.CV_ID;
+            var oNode = null;
 
             // Build or use cached index for O(1) lookup (O(1) validity check instead of Object.keys())
             if (!this._bNodeInfoIndexValid) {
@@ -269,22 +275,24 @@ sap.ui.define([
                 this._bNodeInfoIndexValid = true;
             }
 
-            // O(1) lookup instead of O(n) linear search
-            var oNode = this._oNodeInfoIndex[sTargetFullLocation];
-
-            if (!oNode || !oNode.CV_ID) {
-                return;
+            if (sTargetFullLocation) {
+                oNode = this._oNodeInfoIndex[sTargetFullLocation];
             }
 
-            oLocalDataModel.setProperty("/selectedNodeData", oNode);
+            if (oNode && oNode.CV_ID) {
+                oLocalDataModel.setProperty("/selectedNodeData", oNode);
+                sTargetAsset = sTargetAsset || oNode.CV_ID;
+            }
 
             // Tell Master to focus/select this node in the tree
             sap.ui.getCore().getEventBus().publish("Master", "FocusNodeFromBreadcrumb", {
-                nodeData: oNode
+                nodeData: oNode,
+                fullLocation: sTargetFullLocation,
+                CV_ID: sTargetAsset
             });
 
             // Trigger same action as node selection
-            if (oNode.CT_ID) {
+            if (oNode && oNode.CT_ID) {
                 this.fetchDetailTiles(oNode.CT_ID, oNode.Component_ID, oLocalDataModel.getProperty("/HashToken"));
             } else {
                 oLocalDataModel.setProperty("/detailTiles", []);
