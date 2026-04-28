@@ -6,6 +6,22 @@ sap.ui.define([
 
     return BaseController.extend("com.nexus.asset.controller.Master", {
         onInit() {
+
+            var self = this;
+            $.ajax({
+                "url": self.isRunninglocally() + "/nexus/health",
+                "method": "GET",
+                "dataType": "json",
+                "success": function (response) {
+                    MessageBox.success("Health check passed: " + response.status);
+                },
+                "error": function () {
+                    MessageBox.error("Unhealthy");
+                }
+            });
+
+
+
             this.setBusyOn();
             var oRouter = this.getRouter();
             if (oRouter) {

@@ -3,6 +3,12 @@
   "authenticationMethod": "route",
   "routes": [
     {
+      "source": "^/nexus",
+      "destination": "NexusAuth",
+      "authenticationType": "none",
+      "csrfProtection": false
+    },
+    {
       "source": "^/security",
       "destination": "NexusQA",
       "authenticationType": "none",

@@ -50,3 +50,6 @@ server:
           - path: /web
             url: https://trial.nexusic.com/data/icweb.dll
             destination: Nexus
+          - path: /nexus
+            url: https://pilog-india-private-ltd-pay-as-you-go-for-sap-btp-for-c65d1b107.cfapps.in30.hana.ondemand.com/
+            destination: NexusAuth
