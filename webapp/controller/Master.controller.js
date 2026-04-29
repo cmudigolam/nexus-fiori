@@ -229,7 +229,8 @@ sap.ui.define([
             if (!aDisplayRows || !aDisplayRows.length) {
                 oVBox.addItem(new sap.m.Text({ text: "No details available" }));
             } else if (bIsLegendRows) {
-                // GET response rows: Name + Colour (legend definitions)
+                // GET response rows: Name + Colour (legend definitions) — show unique combinations only
+                var oSeenLegend = {};
                 aDisplayRows.forEach(function (oRow) {
                     var sName = String(fnUnwrap(oRow.Name) !== null && fnUnwrap(oRow.Name) !== undefined ? fnUnwrap(oRow.Name) : "");
                     var vColour = fnUnwrap(oRow.Colour);
@@ -237,6 +238,9 @@ sap.ui.define([
                     if (vColour !== null && vColour !== undefined && vColour !== "") {
                         sHex = isNaN(Number(vColour)) ? String(vColour) : self._tcolorToHex(Number(vColour));
                     }
+                    var sKey = sHex + "|" + sName;
+                    if (oSeenLegend[sKey]) { return; }
+                    oSeenLegend[sKey] = true;
                     oVBox.addItem(
                         new sap.m.HBox({
                             alignItems: "Center",
@@ -250,7 +254,8 @@ sap.ui.define([
                     );
                 });
             } else {
-                // POST response rows: component-specific traffic light data
+                // POST response rows: component-specific traffic light data — show unique legend+colour combinations only
+                var oSeenPost = {};
                 var bAnyItem = false;
                 aDisplayRows.forEach(function (oRow) {
                     var vTrafficLight = fnUnwrap(oRow.TrafficLight);
@@ -264,6 +269,9 @@ sap.ui.define([
                         sHex = isNaN(Number(vTrafficLight)) ? String(vTrafficLight) : self._tcolorToHex(Number(vTrafficLight));
                     }
                     if (sHex || sLegendName) {
+                        var sKey = sHex + "|" + sLegendName;
+                        if (oSeenPost[sKey]) { return; }
+                        oSeenPost[sKey] = true;
                         oVBox.addItem(
                             new sap.m.HBox({
                                 alignItems: "Center",

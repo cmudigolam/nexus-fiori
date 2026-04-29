@@ -1094,6 +1094,12 @@ sap.ui.define([
                 self._categoryTabMap[oCategory.name] = oTab;
                 oTabBar.addItem(oTab);
             });
+
+            // Always select the first tab after building all tabs
+            var aItems = oTabBar.getItems();
+            if (aItems.length > 0) {
+                oTabBar.setSelectedKey(aItems[0].getKey());
+            }
         },
         createFieldControl: function (oField) {
             // If field has a subTableId, create an sap.m.Table and load columns from boByKey
@@ -1123,7 +1129,8 @@ sap.ui.define([
                 case 9: // Date field
                     var oDatePicker = new sap.m.DatePicker({
                         displayFormat: "dd MMM yyyy",
-                        showWeekNumbers: false
+                        showWeekNumbers: false,
+                        placeholder: "e.g. 01 Jan 2025"
                     });
                     this._makeDatePickerOnly(oDatePicker);
                     return oDatePicker;
@@ -1131,13 +1138,15 @@ sap.ui.define([
                     return new sap.m.TimePicker({
                         displayFormat: "hh:mm:ss a",
                         valueFormat: "HH:mm:ss",
-                        width: "100%"
+                        width: "100%",
+                        placeholder: "e.g. 09:30:00 AM"
                     });
                 case 11: // Date and Time field
                     return new sap.m.DateTimePicker({
                         displayFormat: "dd MMM yyyy HH:mm:ss",
                         showWeekNumbers: false,
-                        width: "100%"
+                        width: "100%",
+                        placeholder: "e.g. 01 Jan 2025 09:30:00"
                     });
                 case 5: // Boolean field
                     return new sap.m.CheckBox({
@@ -1146,6 +1155,7 @@ sap.ui.define([
                 case 3: // Integer / Whole number field (no decimals)
                     var oIntInput = new sap.m.Input({
                         type: "Number",
+                        placeholder: "e.g. 12345",
                         liveChange: function (oEvent) {
                             var oInput = oEvent.getSource();
                             var sVal = oInput.getValue();
@@ -1169,17 +1179,19 @@ sap.ui.define([
                 case 6: // Numeric field
                     return new sap.m.Input({
                         type: "Number",
-                        //placeholder: oField.name || oField.fieldName
+                        placeholder: "e.g. 123.45"
                     });
                 case 16: // Multi-line text field
                     return new sap.m.TextArea({
                         growing: true,
                         growingMaxLines: 6,
-                        width: "100%"
+                        width: "100%",
+                        placeholder: "Enter text"
                     });
                 case 37: // Editable dropdown field (ComboBox)
                     var oSelect = new sap.m.ComboBox({
-                        width: "100%"
+                        width: "100%",
+                        placeholder: "Select or enter value"
                     });
                     this._makeComboBoxSelectOnly(oSelect);
                     return oSelect;
@@ -1189,12 +1201,13 @@ sap.ui.define([
                             enabled: false,
                             growing: true,
                             growingMaxLines: 6,
-                            width: "100%"
+                            width: "100%",
+                            placeholder: "Enter text"
                         });
                     }
                     return new sap.m.Input({
-                        //placeholder: oField.name || oField.fieldName,
-                        enabled: false
+                        enabled: false,
+                        placeholder: "Enter value"
                     });
                 case 18: // Nested lookup or sub-table
                     if (oField.nestedField && oField.nestedField.lookupListId) {
@@ -1209,15 +1222,15 @@ sap.ui.define([
                         };
                     }
                     return new sap.m.Input({
-                        //placeholder: oField.name || oField.fieldName,
-                        enabled: false
+                        enabled: false,
+                        placeholder: "Enter value"
                     });
                 case 42: // Sub-table
                     return new sap.m.Input({
-                        //placeholder: oField.name || oField.fieldName,
-                        enabled: false
+                        enabled: false,
+                        placeholder: "Enter value"
                     });
-                case 57: // Global table look //  Case 1 if needed we need to comebacka nd check here
+                case 57: // Global table look
                     var oSelect = new sap.m.Select({
                         width: "100%"
                     });
@@ -1225,7 +1238,7 @@ sap.ui.define([
                 default: // Text field
                     return new sap.m.Input({
                         type: "Text",
-                        //placeholder: oField.name || oField.fieldName
+                        placeholder: "Enter value"
                     });
             }
         },
@@ -2093,8 +2106,8 @@ sap.ui.define([
                 this.getView().addDependent(this._oFieldImageDialog);
             }
 
-            // Update title and image each time — convert underscores to spaces for display
-            this._oFieldImageDialog.setTitle(sTitle ? sTitle.replace(/_/g, " ") : "");
+            // Update title and image each time
+            this._oFieldImageDialog.setTitle("Function");
             this._oFieldImageDialog.destroyContent();
 
             var oScrollContainer = new sap.m.ScrollContainer({
@@ -2677,6 +2690,8 @@ sap.ui.define([
                 return a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0;
             });
             oControl.removeAllItems();
+            // Add empty option as first item so users can clear the selection
+            oControl.addItem(new Item({ key: "", text: "" }));
             aUniqueValues.forEach(function (sVal) {
                 oControl.addItem(new Item({ key: sVal, text: sVal }));
             });

@@ -27,8 +27,18 @@
                         </ComboBox>
                     </VBox>
                     <VBox width="16rem">
-                        <HBox alignItems="Center" class="sapUiTinyMarginBottom">
-                            <Label text="Traffic Light:" labelFor="trafficLightSelector" />
+                        <Label text="Traffic Light:" labelFor="trafficLightSelector" class="sapUiTinyMarginBottom" />
+                        <HBox alignItems="Center">
+                            <ComboBox
+                                id="trafficLightSelector"
+                                width="100%"
+                                placeholder="All"
+                                showSecondaryValues="false"
+                                items="{LocalDataModel>/trafficLightList}"
+                                selectedKey="{LocalDataModel>/selectedTrafficLight}"
+                                selectionChange="onTrafficLightSelect">
+                                <core:Item key="{LocalDataModel>CO_ID}" text="{LocalDataModel>Name}" />
+                            </ComboBox>
                             <core:Icon
                                 id="trafficLightInfoIcon"
                                 src="sap-icon://hint"
@@ -39,16 +49,6 @@
                                 color="@sapUiHighlight"
                                 style="cursor:pointer" />
                         </HBox>
-                        <ComboBox
-                            id="trafficLightSelector"
-                            width="100%"
-                            placeholder="All"
-                            showSecondaryValues="false"
-                            items="{LocalDataModel>/trafficLightList}"
-                            selectedKey="{LocalDataModel>/selectedTrafficLight}"
-                            selectionChange="onTrafficLightSelect">
-                            <core:Item key="{LocalDataModel>CO_ID}" text="{LocalDataModel>Name}" />
-                        </ComboBox>
                     </VBox>
                 </HBox>
                 <tree:TreeTable
