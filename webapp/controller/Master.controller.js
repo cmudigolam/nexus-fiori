@@ -515,7 +515,11 @@ sap.ui.define([
             var oEntry = this._resolveTrafficEntry(vComponentId);
             if (oEntry && oEntry.showDot) {
                 var sLegend = oEntry.legendName ? oEntry.legendName : "";
-                return "Rolled up Risk (Colour Only): " + sLegend;
+                var sSelectedKey = this.getLocalDataModel().getProperty("/selectedTrafficLight") || "";
+                var aList = this.getLocalDataModel().getProperty("/trafficLightList") || [];
+                var oMatch = aList.find(function (oItem) { return String(oItem.CO_ID) === String(sSelectedKey); });
+                var sTrafficLightName = oMatch ? (oMatch.Name || "") : "";
+                return (sTrafficLightName ? sTrafficLightName + ": " : "") + sLegend;
             }
             return "";
         },

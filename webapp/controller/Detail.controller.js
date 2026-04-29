@@ -800,7 +800,7 @@ sap.ui.define([
                             self._subTableControls.push(oTable);
                             // Wrap in a titled VBox so the field label appears above the table
                             var oTitleLabel = new sap.m.Label({
-                                text: oField.name || oField.fieldName,
+                                text: oField.formCaption || oField.name || oField.fieldName,
                                 required: oField.required || false
                             });
                             oTitleLabel.addStyleClass("sapUiSmallMarginTop");
@@ -827,7 +827,7 @@ sap.ui.define([
 
                         // Add label with comments as tooltip
                         var oLabel = new sap.m.Label({
-                            text: oField.name || oField.fieldName,
+                            text: oField.formCaption || oField.name || oField.fieldName,
                             required: oField.required && Number(oField.fieldTypeId) !== 5 || false,
                             visible: bVisible
                         });
@@ -2884,9 +2884,52 @@ sap.ui.define([
                                 });
                             }
                         }
+                    } else if (oControl.isA("sap.m.Input") &&
+                               !(self._unitFieldInfo && self._unitFieldInfo[sFieldKey])) {
+                        // Detect pure positive integer values as TColor (e.g. Risk_Status colour codes)
+                        var vRaw = vValue;
+                        var bIsColorInt = (typeof vRaw === "number" && Number.isInteger(vRaw) && vRaw > 0) ||
+                            (typeof vRaw === "string" && /^\d+$/.test(vRaw.trim()) && parseInt(vRaw.trim(), 10) > 0);
+                        if (bIsColorInt) {
+                            var nColorVal = (typeof vRaw === "number") ? vRaw : parseInt(String(vRaw).trim(), 10);
+                            var sColorHex = self._tcolorToCssHex(nColorVal);
+                            if (sColorHex) {
+                                oControl.setValue("");
+                                self._colourValueMap = self._colourValueMap || {};
+                                self._colourValueMap[sFieldKey] = sColorHex;
+                                (function (oCtrl, sBgColor) {
+                                    var oInnerDom = oCtrl.getDomRef("inner");
+                                    if (oInnerDom) {
+                                        oInnerDom.style.backgroundColor = sBgColor;
+                                        oInnerDom.style.color = "transparent";
+                                    } else {
+                                        oCtrl.addEventDelegate({
+                                            onAfterRendering: function () {
+                                                var oDom = oCtrl.getDomRef("inner");
+                                                if (oDom) {
+                                                    oDom.style.backgroundColor = sBgColor;
+                                                    oDom.style.color = "transparent";
+                                                }
+                                            }
+                                        });
+                                    }
+                                }(oControl, sColorHex));
+                            }
+                        }
                     }
                 } else if (oControl.isA("sap.m.TimePicker")) {
-                    oControl.setValue(String(vValue));
+                    // API stores time as an ISO datetime string (e.g. "1899-12-30T14:30:00.000Z").
+                    // TimePicker valueFormat is "HH:mm:ss", so parse the date and extract the
+                    // time part; fall back to the raw string if parsing fails.
+                    var oTimeDate = new Date(vValue);
+                    if (!isNaN(oTimeDate.getTime())) {
+                        var sTH = String(oTimeDate.getUTCHours()).padStart(2, "0");
+                        var sTM = String(oTimeDate.getUTCMinutes()).padStart(2, "0");
+                        var sTS = String(oTimeDate.getUTCSeconds()).padStart(2, "0");
+                        oControl.setValue(sTH + ":" + sTM + ":" + sTS);
+                    } else {
+                        oControl.setValue(String(vValue));
+                    }
                 } else if (oControl.isA("sap.m.DatePicker")) {
                     var oDate = new Date(vValue);
                     if (!isNaN(oDate.getTime())) {
@@ -3081,7 +3124,7 @@ sap.ui.define([
                         if (!bIsValid) {
                             aValidationErrors.push({
                                 field: sFieldKey,
-                                label: oField.name || oField.fieldName || sFieldKey,
+                                label: oField.formCaption || oField.name || oField.fieldName || sFieldKey,
                                 message: self.getResourceBundle().getText("msgFieldRequired")
                             });
                         }
