@@ -439,55 +439,31 @@ sap.ui.define([
         openDynamicFormDialog: function (sTableName, oFormData, sTileTitle) {
 
             var oCategorizedFields = {};
-            var aCategories = Array.isArray(oFormData && oFormData.categories) ? oFormData.categories : [];
             var aFields = (Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [])
                 .filter(function (oField) { return Number(oField.fieldTypeId) !== 15; });
-
-            aCategories.forEach(function (oCategory) {
-                oCategorizedFields[oCategory.name] = [];
-            });
-
-            if (!aCategories.length) {
-                oCategorizedFields.General = aFields.slice();
-            } else {
-                aFields.forEach(function (oField) {
-                    if (oField.category && oCategorizedFields[oField.category]) {
-                        oCategorizedFields[oField.category].push(oField);
-                    }
-                });
-            }
 
             if (!aFields.length) {
                 MessageToast.show(this.getResourceBundle().getText("msgNoFieldsAvailable"));
                 return;
             }
 
-            if (!aCategories.length) {
-                oFormData.categories = [{ name: "General" }];
-            } else {
-                oFormData.categories.forEach(function (oCategory) {
-                    if (!oCategorizedFields[oCategory.name]) {
-                        oCategorizedFields[oCategory.name] = [];
-                    }
-                });
-                aFields.forEach(function (oField) {
-                    if (!oField.category) {
-                        oCategorizedFields[oFormData.categories[0].name].push(oField);
-                    }
-                });
-            }
+            // Derive IconTabFilter categories from each field's 'category' property.
+            // Fields that have no 'category' are grouped under the tile name.
+            var sDefaultCategory = sTileTitle || sTableName || "General";
+            var aCategoryOrder = [];
+            var oCategorySet = {};
 
-            if (!Object.keys(oCategorizedFields).length) {
-                oCategorizedFields.General = aFields.slice();
-                oFormData.categories = [{ name: "General" }];
-            }
-
-            // Ensure each category has at least empty array
-            oFormData.categories.forEach(function (oCategory) {
-                if (!oCategorizedFields[oCategory.name]) {
-                    oCategorizedFields[oCategory.name] = [];
+            aFields.forEach(function (oField) {
+                var sCat = oField.category || sDefaultCategory;
+                if (!oCategorySet[sCat]) {
+                    oCategorySet[sCat] = true;
+                    aCategoryOrder.push(sCat);
+                    oCategorizedFields[sCat] = [];
                 }
+                oCategorizedFields[sCat].push(oField);
             });
+
+            oFormData.categories = aCategoryOrder.map(function (sName) { return { name: sName }; });
             var self = this;
             // Create dialog content model with tile title as dialog title
             var oDialogModel = {
@@ -842,7 +818,7 @@ sap.ui.define([
                         // Add label with comments as tooltip
                         var oLabel = new sap.m.Label({
                             text: oField.name || oField.fieldName,
-                            required: oField.required || false,
+                            required: oField.required && Number(oField.fieldTypeId) !== 5 || false,
                             visible: bVisible
                         });
                         if (oField.comments) {
@@ -1141,6 +1117,12 @@ sap.ui.define([
                     });
                     this._makeDatePickerOnly(oDatePicker);
                     return oDatePicker;
+                case 10: // Time field
+                    return new sap.m.TimePicker({
+                        displayFormat: "hh:mm:ss a",
+                        valueFormat: "HH:mm:ss",
+                        width: "100%"
+                    });
                 case 11: // Date and Time field
                     return new sap.m.DateTimePicker({
                         displayFormat: "dd MMM yyyy HH:mm:ss",
@@ -2557,7 +2539,7 @@ sap.ui.define([
                 var oControl = oBoControls[sFieldKey];
                 var vValue = oFirstRow[sFieldKey];
                 if (vValue === undefined || vValue === null) { return; }
-                if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
+                if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea") || oControl.isA("sap.m.TimePicker")) {
                     oControl.setValue(String(vValue));
                 } else if (oControl.isA("sap.m.DatePicker")) {
                     var oDate = new Date(vValue);
@@ -2893,6 +2875,8 @@ sap.ui.define([
                             }
                         }
                     }
+                } else if (oControl.isA("sap.m.TimePicker")) {
+                    oControl.setValue(String(vValue));
                 } else if (oControl.isA("sap.m.DatePicker")) {
                     var oDate = new Date(vValue);
                     if (!isNaN(oDate.getTime())) {
@@ -3065,14 +3049,14 @@ sap.ui.define([
 
             var self = this;
             oFormData.fields.forEach(function (oField) {
-                if (oField.required) {
+                if (oField.required && Number(oField.fieldTypeId) !== 5) {
                     var sFieldKey = oField.fieldName || oField.name;
                     var oControl = self._fieldControlMap[sFieldKey];
 
                     if (oControl) {
                         var bIsValid = false;
 
-                        if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
+                        if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea") || oControl.isA("sap.m.TimePicker")) {
                             bIsValid = oControl.getValue() && oControl.getValue().trim() !== "";
                         } else if (oControl.isA("sap.m.DatePicker")) {
                             bIsValid = oControl.getDateValue() !== null;
@@ -3193,7 +3177,7 @@ sap.ui.define([
                     }
                 }
                 var aFieldNames = aValidationErrors.map(function (e) { return e.label || e.field; });
-                MessageToast.show(self.getResourceBundle().getText("msgFieldsRequireAttention", [aValidationErrors.length]) + "\n" + aFieldNames.join(", "), { duration: 4000 });
+                MessageBox.error(self.getResourceBundle().getText("msgFieldsRequireAttention", [aValidationErrors.length]) + "\n" + aFieldNames.join(", "), { duration: 4000 });
                 return;
             }
             // Collect form field values from _fieldControlMap (only non-empty values)
@@ -3202,7 +3186,7 @@ sap.ui.define([
                 Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
                     var oControl = self._fieldControlMap[sFieldKey];
                     var vValue;
-                    if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
+                    if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea") || oControl.isA("sap.m.TimePicker")) {
                         vValue = oControl.getValue();
                         if (vValue !== "" && vValue !== undefined) {
                             // Convert UOM fields back to the field's configured unit before saving.
@@ -3244,6 +3228,9 @@ sap.ui.define([
                             } else {
                                 oPayload[sFieldKey] = vValue;
                             }
+                        } else {
+                            // Empty value — explicitly send null so the backend clears the field
+                            oPayload[sFieldKey] = null;
                         }
                     } else if (oControl.isA("sap.m.DatePicker")) {
                         // Use getDateValue() to get the JS Date
@@ -3261,6 +3248,9 @@ sap.ui.define([
                             } else {
                                 oPayload[sFieldKey] = sYear + "-" + sMonth + "-" + sDay;
                             }
+                        } else {
+                            // Date was cleared — explicitly send null so the backend clears the field
+                            oPayload[sFieldKey] = null;
                         }
                     } else if (oControl.isA("sap.m.CheckBox")) {
                         oPayload[sFieldKey] = oControl.getSelected();
@@ -3270,13 +3260,17 @@ sap.ui.define([
                         var sSelectedText = oSelectedItem ? oSelectedItem.getText() : "";
 
                         // Prefer the selected key for lookup-backed dropdowns; fall back to text when no key exists.
+                        // Always include the field so clearing a selection is persisted.
                         if (sSelectedKey !== "" && sSelectedKey !== undefined) {
                             oPayload[sFieldKey] = sSelectedKey;
                         } else if (sSelectedText !== "" && sSelectedText !== undefined) {
                             oPayload[sFieldKey] = sSelectedText;
+                        } else {
+                            oPayload[sFieldKey] = null;
                         }
                     } else if (oControl.isA("sap.m.ComboBox")) {
                         // ComboBox is editable — prefer selected key, then selected text, then typed value.
+                        // Always include the field so clearing a selection is persisted.
                         var sComboKey = oControl.getSelectedKey();
                         var oComboItem = oControl.getSelectedItem();
                         var sComboValue = oComboItem ? oComboItem.getText() : oControl.getValue();
@@ -3284,6 +3278,8 @@ sap.ui.define([
                             oPayload[sFieldKey] = sComboKey;
                         } else if (sComboValue !== "" && sComboValue !== undefined) {
                             oPayload[sFieldKey] = sComboValue;
+                        } else {
+                            oPayload[sFieldKey] = null;
                         }
                     }
                 });
