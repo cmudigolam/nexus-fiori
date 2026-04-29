@@ -558,78 +558,88 @@ sap.ui.define([
                     "success": function (response) {
                         var aResponseFields = Array.isArray(response && response.fields) ? response.fields : [];
 
-                        // businessObjectName and filter field are on oForeignField.nestedField
-                        // (from the parent /bo/ response, e.g. "Material" field carries:
-                        //   nestedField.businessObjectName = "LT_Material_Selection__Piping_"
-                        //   nestedField.fieldName          = "Material_Selection__Piping__ID")
-                        aResponseFields.forEach((val) => { // override fieldTypeId to force form control generation for expanded fields
-                            val.fieldTypeId = 57
-                        });
+                        // override fieldTypeId to force form control generation for expanded fields
+                        aResponseFields.forEach(function (val) { val.fieldTypeId = 57; });
+
                         var oNestedField = oForeignField.nestedField;
-                        var sBusinessObjectName = oNestedField && oNestedField.businessObjectName;
+                        // Prefer nestedField.businessObjectName; fall back to the top-level
+                        // businessObjectName returned directly by /boByKey response.
+                        var sBusinessObjectName = (oNestedField && oNestedField.businessObjectName)
+                            || response.businessObjectName;
                         var sFilterField = oNestedField && oNestedField.fieldName;
 
-                        if (sBusinessObjectName && sFilterField) {
+                        if (sBusinessObjectName) {
                             var sParentTableName = self._formDataTableName;
                             var sParentFieldName = oForeignField.fieldName || oForeignField.name;
                             var sCompId = self.getLocalDataModel().getProperty("/sCompoonentID");
 
                             // Store mapping so _saveFormData can resolve cascade selections back to parent field
-                            self._boParentFieldMap[sBusinessObjectName] = {
-                                parentFieldName: sParentFieldName,
-                                filterField: sFilterField
-                            };
+                            if (sFilterField) {
+                                self._boParentFieldMap[sBusinessObjectName] = {
+                                    parentFieldName: sParentFieldName,
+                                    filterField: sFilterField
+                                };
+                            }
 
-                            if (sParentTableName && sCompId) {
-                                // Step 1: fetch the parent record to read the link value
-                                // e.g. /bo/CIG_Piping_Data/{compId} → record["Material"] → 8
-                                $.ajax({
-                                    "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sParentTableName) + "/" + encodeURIComponent(sCompId),
-                                    "method": "GET",
-                                    "dataType": "json",
-                                    "data": { "hash": sResolvedHash },
-                                    "success": function (parentResponse) {
-                                        var oParentRecord = parentResponse;
-                                        if (Array.isArray(parentResponse.rows) && parentResponse.rows.length > 0) {
-                                            oParentRecord = parentResponse.rows[0];
-                                        } else if (Array.isArray(parentResponse) && parentResponse.length > 0) {
-                                            oParentRecord = parentResponse[0];
-                                        }
+                            // Always call /bo/{businessObjectName} to load dropdown options unconditionally.
+                            // The parent-record fetch is a secondary step only to pre-select the current value.
+                            $.ajax({
+                                "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sBusinessObjectName) + "/",
+                                "method": "GET",
+                                "dataType": "json",
+                                "data": { "hash": sResolvedHash, "pagesize": 1000 },
+                                "success": function (linkedResponse) {
+                                    oForeignField._linkedData = linkedResponse;
+                                    var aAllRows = [];
+                                    if (Array.isArray(linkedResponse.rows) && linkedResponse.rows.length > 0) {
+                                        aAllRows = linkedResponse.rows;
+                                    } else if (Array.isArray(linkedResponse) && linkedResponse.length > 0) {
+                                        aAllRows = linkedResponse;
+                                    }
+                                    self._linkedDataByBO[sBusinessObjectName] = aAllRows;
+                                    self._linkedFieldMatchInfo = self._linkedFieldMatchInfo || {};
 
-                                        var vLinkValue = oParentRecord && oParentRecord[sParentFieldName];
-                                        if (vLinkValue === undefined || vLinkValue === null) { return; }
-
-                                        // Step 2: call /bo/{businessObjectName} to load all data (no filter)
-                                        // e.g. /bo/LT_Material_Selection__Piping_
+                                    if (sParentTableName && sCompId && sFilterField) {
+                                        // Fetch parent record to read the current link value for pre-selection
                                         $.ajax({
-                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sBusinessObjectName) + "/",
+                                            "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sParentTableName) + "/" + encodeURIComponent(sCompId),
                                             "method": "GET",
                                             "dataType": "json",
-                                            "data": { "hash": sResolvedHash, "pagesize": 1000 },
-                                            "success": function (linkedResponse) {
-                                                oForeignField._linkedData = linkedResponse;
-                                                // Store full dataset per BO for cascade filtering
-                                                var aAllRows = [];
-                                                if (Array.isArray(linkedResponse.rows) && linkedResponse.rows.length > 0) {
-                                                    aAllRows = linkedResponse.rows;
-                                                } else if (Array.isArray(linkedResponse) && linkedResponse.length > 0) {
-                                                    aAllRows = linkedResponse;
+                                            "data": { "hash": sResolvedHash },
+                                            "success": function (parentResponse) {
+                                                var oParentRecord = parentResponse;
+                                                if (Array.isArray(parentResponse.rows) && parentResponse.rows.length > 0) {
+                                                    oParentRecord = parentResponse.rows[0];
+                                                } else if (Array.isArray(parentResponse) && parentResponse.length > 0) {
+                                                    oParentRecord = parentResponse[0];
                                                 }
-                                                self._linkedDataByBO[sBusinessObjectName] = aAllRows;
-                                                // Store match info so _populateLinkedFields can find the correct row
-                                                self._linkedFieldMatchInfo = self._linkedFieldMatchInfo || {};
+                                                var vLinkValue = oParentRecord && oParentRecord[sParentFieldName];
                                                 self._linkedFieldMatchInfo[sBusinessObjectName] = {
                                                     filterField: sFilterField,
-                                                    linkValue: vLinkValue
+                                                    linkValue: vLinkValue !== undefined ? vLinkValue : null
                                                 };
-                                                // Populate the expanded UI controls scoped to this business object only
                                                 self._populateLinkedFields(linkedResponse, sBusinessObjectName);
                                             },
-                                            "error": function () { /* silent – linked data unavailable */ }
+                                            "error": function () {
+                                                // Populate dropdowns without pre-selection if parent fetch fails
+                                                self._linkedFieldMatchInfo[sBusinessObjectName] = {
+                                                    filterField: sFilterField,
+                                                    linkValue: null
+                                                };
+                                                self._populateLinkedFields(linkedResponse, sBusinessObjectName);
+                                            }
                                         });
+                                    } else {
+                                        // No parent record context — populate all dropdown options as-is
+                                        self._linkedFieldMatchInfo[sBusinessObjectName] = {
+                                            filterField: sFilterField || null,
+                                            linkValue: null
+                                        };
+                                        self._populateLinkedFields(linkedResponse, sBusinessObjectName);
                                     }
-                                });
-                            }
+                                },
+                                "error": function () { /* silent – linked data unavailable */ }
+                            });
                         }
 
                         // Include fields where gridVisible or formVisible is explicitly true
@@ -3186,7 +3196,20 @@ sap.ui.define([
                 Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
                     var oControl = self._fieldControlMap[sFieldKey];
                     var vValue;
-                    if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea") || oControl.isA("sap.m.TimePicker")) {
+                    if (oControl.isA("sap.m.TimePicker")) {
+                        // Format time as "1899-12-30T{HH}:{MM}:{SS}.000Z" — the fixed epoch date
+                        // the backend uses to store time-only values.
+                        var oTimeDate = oControl.getDateValue();
+                        if (oTimeDate && !isNaN(oTimeDate.getTime())) {
+                            var sHH = String(oTimeDate.getHours()).padStart(2, "0");
+                            var sMM = String(oTimeDate.getMinutes()).padStart(2, "0");
+                            var sSS = String(oTimeDate.getSeconds()).padStart(2, "0");
+                            oPayload[sFieldKey] = "1899-12-30T" + sHH + ":" + sMM + ":" + sSS + ".000Z";
+                        } else {
+                            var sRaw = oControl.getValue();
+                            oPayload[sFieldKey] = sRaw !== "" ? sRaw : null;
+                        }
+                    } else if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                         vValue = oControl.getValue();
                         if (vValue !== "" && vValue !== undefined) {
                             // Convert UOM fields back to the field's configured unit before saving.

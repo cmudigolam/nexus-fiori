@@ -3,7 +3,7 @@
     xmlns:core="sap.ui.core"
 	xmlns:mvc="sap.ui.core.mvc"   xmlns:u="sap.ui.unified"
     xmlns:semantic="sap.f.semantic" xmlns:tree="sap.ui.table" xmlns:rm="sap.ui.table.rowmodes">
-    <f:DynamicPage id="dynamicPageId" toggleHeaderOnTitleClick="false" title="{i18n>assetTitle}" class="assetDynamicPage" showFooter="{LocalDataModel>/trafficLightFooterVisible}">
+    <f:DynamicPage id="dynamicPageId" toggleHeaderOnTitleClick="false" title="{i18n>assetTitle}" class="assetDynamicPage" ><!--showFooter="{LocalDataModel>/trafficLightFooterVisible}"-->
         <f:title>
             <f:DynamicPageTitle id="dynamicPageTitle">
                 <f:heading>
@@ -27,7 +27,18 @@
                         </ComboBox>
                     </VBox>
                     <VBox width="16rem">
-                        <Label text="Traffic Light:" labelFor="trafficLightSelector" class="sapUiTinyMarginBottom" />
+                        <HBox alignItems="Center" class="sapUiTinyMarginBottom">
+                            <Label text="Traffic Light:" labelFor="trafficLightSelector" />
+                            <core:Icon
+                                id="trafficLightInfoIcon"
+                                src="sap-icon://hint"
+                                visible="{= !!${LocalDataModel>/selectedTrafficLight}}"
+                                press="onTrafficLightInfoPress"
+                                tooltip="Show traffic light details"
+                                class="sapUiSmallMarginBegin"
+                                color="@sapUiHighlight"
+                                style="cursor:pointer" />
+                        </HBox>
                         <ComboBox
                             id="trafficLightSelector"
                             width="100%"

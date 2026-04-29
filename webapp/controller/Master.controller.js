@@ -181,6 +181,112 @@ sap.ui.define([
                 }
             });
         },
+
+        onTrafficLightInfoPress: function (oEvent) {
+            var oSource = oEvent.getSource();
+            var sTrafficLightKey = this.getLocalDataModel().getProperty("/selectedTrafficLight") || "";
+            if (!sTrafficLightKey) { return; }
+
+            function unwrap(v) {
+                return (v !== null && v !== undefined && typeof v === "object" && "value" in v) ? v.value : v;
+            }
+
+            // Reuse responses already fetched by _fetchTrafficLightColors — no new API calls needed.
+            // GET rows take priority; fall back to POST rows if GET returned nothing.
+            var aGetRows = Array.isArray(this._lastTrafficLightGetRows) ? this._lastTrafficLightGetRows : [];
+            var bUseGetRows = aGetRows.length > 0;
+            var aDisplayRows = bUseGetRows
+                ? aGetRows
+                : (Array.isArray(this._lastTrafficLightPostRows) ? this._lastTrafficLightPostRows : []);
+
+            this._openTrafficLightInfoPopover(oSource, aDisplayRows, bUseGetRows, unwrap);
+        },
+
+        _openTrafficLightInfoPopover: function (oSource, aDisplayRows, bIsLegendRows, fnUnwrap) {
+            var self = this;
+
+            if (this._oTrafficInfoPopover) {
+                this._oTrafficInfoPopover.destroy();
+                this._oTrafficInfoPopover = null;
+            }
+
+            this._oTrafficInfoPopover = new sap.m.Popover({
+                title: "Traffic Light Details",
+                placement: sap.m.PlacementType.PreferredRightBegin,
+                contentWidth: "20rem",
+                afterClose: function () {
+                    if (self._oTrafficInfoPopover) {
+                        self._oTrafficInfoPopover.destroy();
+                        self._oTrafficInfoPopover = null;
+                    }
+                }
+            });
+            this.getView().addDependent(this._oTrafficInfoPopover);
+
+            var oVBox = new sap.m.VBox();
+            oVBox.addStyleClass("sapUiSmallMargin");
+
+            if (!aDisplayRows || !aDisplayRows.length) {
+                oVBox.addItem(new sap.m.Text({ text: "No details available" }));
+            } else if (bIsLegendRows) {
+                // GET response rows: Name + Colour (legend definitions)
+                aDisplayRows.forEach(function (oRow) {
+                    var sName = String(fnUnwrap(oRow.Name) !== null && fnUnwrap(oRow.Name) !== undefined ? fnUnwrap(oRow.Name) : "");
+                    var vColour = fnUnwrap(oRow.Colour);
+                    var sHex = "";
+                    if (vColour !== null && vColour !== undefined && vColour !== "") {
+                        sHex = isNaN(Number(vColour)) ? String(vColour) : self._tcolorToHex(Number(vColour));
+                    }
+                    oVBox.addItem(
+                        new sap.m.HBox({
+                            alignItems: "Center",
+                            items: sHex
+                                ? [
+                                    new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
+                                    new sap.m.Text({ text: sName }).addStyleClass("sapUiSmallMarginBegin")
+                                ]
+                                : [new sap.m.Text({ text: sName })]
+                        }).addStyleClass("sapUiTinyMarginTopBottom")
+                    );
+                });
+            } else {
+                // POST response rows: component-specific traffic light data
+                var bAnyItem = false;
+                aDisplayRows.forEach(function (oRow) {
+                    var vTrafficLight = fnUnwrap(oRow.TrafficLight);
+                    var sLegendName = String(
+                        fnUnwrap(oRow.LegendName) !== null && fnUnwrap(oRow.LegendName) !== undefined
+                            ? fnUnwrap(oRow.LegendName)
+                            : ""
+                    );
+                    var sHex = "";
+                    if (vTrafficLight !== null && vTrafficLight !== undefined && vTrafficLight !== "") {
+                        sHex = isNaN(Number(vTrafficLight)) ? String(vTrafficLight) : self._tcolorToHex(Number(vTrafficLight));
+                    }
+                    if (sHex || sLegendName) {
+                        oVBox.addItem(
+                            new sap.m.HBox({
+                                alignItems: "Center",
+                                items: sHex
+                                    ? [
+                                        new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
+                                        new sap.m.Text({ text: sLegendName || sHex }).addStyleClass("sapUiSmallMarginBegin")
+                                    ]
+                                    : [new sap.m.Text({ text: sLegendName })]
+                            }).addStyleClass("sapUiTinyMarginTopBottom")
+                        );
+                        bAnyItem = true;
+                    }
+                });
+                if (!bAnyItem) {
+                    oVBox.addItem(new sap.m.Text({ text: "No details available" }));
+                }
+            }
+
+            this._oTrafficInfoPopover.addContent(oVBox);
+            this._oTrafficInfoPopover.openBy(oSource);
+        },
+
         onTrafficLightSelect: function (oEvent) {
             var oItem = oEvent.getParameter("selectedItem");
             var sKey = oItem ? oItem.getKey() : "";
@@ -189,8 +295,11 @@ sap.ui.define([
             if (!sKey) {
                 // Cleared — hide column and reset color map
                 this._trafficLightColorMap = null;
+                this._lastTrafficLightPostRows = [];
+                this._lastTrafficLightGetRows = [];
                 this.getLocalDataModel().setProperty("/trafficLightColumnVisible", false);
                 this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
+                this.getLocalDataModel().setProperty("/trafficLightLegendItems", []);
                 this._updateLegendFooter();
                 // Bump version so formatters re-run and produce hidden placeholders
                 var iVer = this.getLocalDataModel().getProperty("/trafficLightVersion") || 0;
@@ -199,10 +308,17 @@ sap.ui.define([
                 return;
             }
 
-            // Reset map so colors from the previously selected traffic light do not bleed
-            // into the new selection.  _fetchTrafficLightColors will rebuild from scratch.
+            // Always reset map so switching traffic light types always produces a fresh result.
             this._trafficLightColorMap = null;
-            this._fetchTrafficLightColors(sKey);
+            this._lastTrafficLightPostRows = [];
+            this._lastTrafficLightGetRows = [];
+
+            // If the tree has no loaded rows yet, nothing to fetch — the selection is
+            // persisted and _loadRootNodes will call _fetchTrafficLightColors once data arrives.
+            var aTree = this.getLocalDataModel().getProperty("/treeTable") || [];
+            if (aTree.length) {
+                this._fetchTrafficLightColors(sKey);
+            }
             this._persistMasterTreeState();
         },
 
@@ -215,14 +331,37 @@ sap.ui.define([
             var aIds = [];
             self._collectComponentIds(aTree, aIds);
 
-            if (!aIds.length) {
-                // No component IDs loaded yet; ensure any pending busy state is cleared.
-                self.setBusyOff();
-                return;
-            }
-
             var fnCall = function (sHash) {
+                // Component color POST requires IDs — skip if none are loaded yet.
+                if (!aIds.length) {
+                    // No component IDs yet — still fetch legend definitions via GET
+                    $.ajax({
+                        "url": self.isRunninglocally() + "/web/?hash=" + encodeURIComponent(sHash) + "&metaTable=TrafficLightValues&requestType=getTrafficLight&trafficlightKey=" + encodeURIComponent(sTrafficLightKey),
+                        "method": "GET",
+                        "dataType": "json",
+                        "success": function (getLegendResponse) {
+                            var aLegendRows = [];
+                            if (Array.isArray(getLegendResponse && getLegendResponse.Rows)) {
+                                aLegendRows = getLegendResponse.Rows;
+                            } else if (Array.isArray(getLegendResponse && getLegendResponse.rows)) {
+                                aLegendRows = getLegendResponse.rows;
+                            }
+                            if (aLegendRows.length > 0) {
+                                self._updateLegendFooterFromRows(aLegendRows);
+                            } else {
+                                self._updateLegendFooter();
+                            }
+                        },
+                        "error": function () {
+                            self._updateLegendFooter();
+                        }
+                    });
+                    self.setBusyOff();
+                    return;
+                }
+
                 self.setBusyOn();
+                // Step 1: POST for component-specific traffic light colors
                 $.ajax({
                     "url": self.isRunninglocally() + "/web/?hash=" + encodeURIComponent(sHash) + "&metaTable=TrafficLightValues",
                     "method": "POST",
@@ -232,15 +371,15 @@ sap.ui.define([
                         // Merge into the existing map so any colors accumulated while this
                         // request was in-flight are preserved.
                         var oColorMap = self._trafficLightColorMap || {};
-                        var aRows = [];
+                        var aPostRows = [];
                         if (Array.isArray(response && response.Rows)) {
-                            aRows = response.Rows;
+                            aPostRows = response.Rows;
                         } else if (Array.isArray(response && response.rows)) {
-                            aRows = response.rows;
+                            aPostRows = response.rows;
                         } else if (Array.isArray(response)) {
-                            aRows = response;
+                            aPostRows = response;
                         }
-                        aRows.forEach(function (oRow) {
+                        aPostRows.forEach(function (oRow) {
                             // Unwrap {value: ...} wrapper format if present
                             function unwrap(v) { return (v !== null && v !== undefined && typeof v === "object" && "value" in v) ? v.value : v; }
                             var vRawId = unwrap(oRow.Component_ID) !== null && unwrap(oRow.Component_ID) !== undefined ? unwrap(oRow.Component_ID) : (unwrap(oRow.componentId) !== null && unwrap(oRow.componentId) !== undefined ? unwrap(oRow.componentId) : (unwrap(oRow.id) !== null && unwrap(oRow.id) !== undefined ? unwrap(oRow.id) : ""));
@@ -262,13 +401,14 @@ sap.ui.define([
                             }
                         });
                         self._trafficLightColorMap = oColorMap;
+                        self._lastTrafficLightPostRows = aPostRows;
                         oLocalDataModel.setProperty("/trafficLightColumnVisible", true);
                         // Bump version so ALL formatTrafficDot formatters re-run
                         // and read the freshly updated _trafficLightColorMap.
                         var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
                         oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
-                        // Call GET API to fetch legend definitions; if it returns rows use those
-                        // for the footer legend, otherwise fall back to the POST-derived legend.
+
+                        // Step 2: GET legend definitions — rows take priority over POST for legend display
                         $.ajax({
                             "url": self.isRunninglocally() + "/web/?hash=" + encodeURIComponent(sHash) + "&metaTable=TrafficLightValues&requestType=getTrafficLight&trafficlightKey=" + encodeURIComponent(sTrafficLightKey),
                             "method": "GET",
@@ -280,6 +420,7 @@ sap.ui.define([
                                 } else if (Array.isArray(getLegendResponse && getLegendResponse.rows)) {
                                     aLegendRows = getLegendResponse.rows;
                                 }
+                                self._lastTrafficLightGetRows = aLegendRows;
                                 if (aLegendRows.length > 0) {
                                     self._updateLegendFooterFromRows(aLegendRows);
                                 } else {
@@ -288,6 +429,7 @@ sap.ui.define([
                                 self.setBusyOff();
                             },
                             "error": function () {
+                                self._lastTrafficLightGetRows = [];
                                 self._updateLegendFooter();
                                 self.setBusyOff();
                             }
@@ -413,8 +555,11 @@ sap.ui.define([
 
             if (!aUnique.length) {
                 this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
+                this.getLocalDataModel().setProperty("/trafficLightLegendItems", []);
                 return;
             }
+
+            this.getLocalDataModel().setProperty("/trafficLightLegendItems", aUnique);
 
             aUnique.forEach(function (oEntry) {
                 oFlex.addItem(
@@ -465,6 +610,7 @@ sap.ui.define([
 
             if (!aUnique.length) {
                 this.getLocalDataModel().setProperty("/trafficLightFooterVisible", false);
+                this.getLocalDataModel().setProperty("/trafficLightLegendItems", []);
                 return;
             }
 
@@ -472,6 +618,8 @@ sap.ui.define([
             aUnique.sort(function (a, b) {
                 return (a.legendName || "").localeCompare(b.legendName || "");
             });
+
+            this.getLocalDataModel().setProperty("/trafficLightLegendItems", aUnique);
 
             aUnique.forEach(function (oEntry) {
                 oFlex.addItem(
@@ -1219,11 +1367,24 @@ sap.ui.define([
             if (!oSelectedRow || !oSelectedRow.Has_Children) {
                 return;
             }
-            // Skip if children are already loaded
+            var sPath = oContext.getPath() + "/rows";
+
+            // If children are already loaded, re-fetch their traffic light colors
+            // (covers the case where traffic light was selected after the first expand)
             if (this._areChildRowsLoaded(oSelectedRow)) {
+                var sSelectedKeyExpand = this.getLocalDataModel().getProperty("/selectedTrafficLight");
+                if (sSelectedKeyExpand) {
+                    var aExistingChildren = oSelectedRow.rows || [];
+                    if (aExistingChildren.length) {
+                        this._fetchAndMergeChildColors(sSelectedKeyExpand, aExistingChildren);
+                    } else {
+                        // Bump version so formatters re-run on the re-revealed rows
+                        var iV = this.getLocalDataModel().getProperty("/trafficLightVersion") || 0;
+                        this.getLocalDataModel().setProperty("/trafficLightVersion", iV + 1);
+                    }
+                }
                 return;
             }
-            var sPath = oContext.getPath() + "/rows";
 
             this._loadChildNodes(oSelectedRow, sPath);
         },
@@ -1302,8 +1463,30 @@ sap.ui.define([
                         // and read the freshly updated _trafficLightColorMap.
                         var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
                         oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
-                        self._updateLegendFooter();
-                        self.setBusyOff();
+                        // Re-fetch legend so the footer stays in sync with newly expanded nodes.
+                        $.ajax({
+                            "url": self.isRunninglocally() + "/web/?hash=" + encodeURIComponent(sHash) + "&metaTable=TrafficLightValues&requestType=getTrafficLight&trafficlightKey=" + encodeURIComponent(sKey),
+                            "method": "GET",
+                            "dataType": "json",
+                            "success": function (getLegendResponse) {
+                                var aLegendRows = [];
+                                if (Array.isArray(getLegendResponse && getLegendResponse.Rows)) {
+                                    aLegendRows = getLegendResponse.Rows;
+                                } else if (Array.isArray(getLegendResponse && getLegendResponse.rows)) {
+                                    aLegendRows = getLegendResponse.rows;
+                                }
+                                if (aLegendRows.length > 0) {
+                                    self._updateLegendFooterFromRows(aLegendRows);
+                                } else {
+                                    self._updateLegendFooter();
+                                }
+                                self.setBusyOff();
+                            },
+                            "error": function () {
+                                self._updateLegendFooter();
+                                self.setBusyOff();
+                            }
+                        });
                     },
                     "error": function () {
                         // On error, bump version so existing parent dots remain visible
