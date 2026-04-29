@@ -229,8 +229,8 @@ sap.ui.define([
             if (!aDisplayRows || !aDisplayRows.length) {
                 oVBox.addItem(new sap.m.Text({ text: "No details available" }));
             } else if (bIsLegendRows) {
-                // GET response rows: Name + Colour (legend definitions) — show unique combinations only
-                var oSeenLegend = {};
+                // GET response rows: Name + Colour (legend definitions) — group by unique colors
+                var oColorMap = {};
                 aDisplayRows.forEach(function (oRow) {
                     var sName = String(fnUnwrap(oRow.Name) !== null && fnUnwrap(oRow.Name) !== undefined ? fnUnwrap(oRow.Name) : "");
                     var vColour = fnUnwrap(oRow.Colour);
@@ -238,25 +238,38 @@ sap.ui.define([
                     if (vColour !== null && vColour !== undefined && vColour !== "") {
                         sHex = isNaN(Number(vColour)) ? String(vColour) : self._tcolorToHex(Number(vColour));
                     }
-                    var sKey = sHex + "|" + sName;
-                    if (oSeenLegend[sKey]) { return; }
-                    oSeenLegend[sKey] = true;
-                        oVBox.addItem(
-                            new sap.m.HBox({
-                                alignItems: "Center",
-                                items: (sHex !== "")
-                                    ? [
-                                        new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
-                                        new sap.m.Text({ text: sName && sName.trim() !== "" ? sName : "N/A" }).addStyleClass("sapUiSmallMarginBegin")
-                                    ]
-                                    : [new sap.m.Text({ text: sName && sName.trim() !== "" ? sName : "N/A" })]
-                            }).addStyleClass("sapUiTinyMarginTopBottom")
-                        );
+                    // Only process if we have a hex color (display with N/A legend if legend is empty)
+                    if (!sHex) { return; }
+                    
+                    if (!oColorMap[sHex]) {
+                        oColorMap[sHex] = [];
+                    }
+                    // Add legend name if not already in the list
+                    var sCleanName = sName && sName.trim() !== "" ? sName : "N/A";
+                    if (oColorMap[sHex].indexOf(sCleanName) === -1) {
+                        oColorMap[sHex].push(sCleanName);
+                    }
+                });
+                
+                // Display all unique colors with their legend values
+                Object.keys(oColorMap).forEach(function (sHex) {
+                    var aLegends = oColorMap[sHex];
+                    var sLegendText = aLegends.join(", ");
+                    oVBox.addItem(
+                        new sap.m.HBox({
+                            alignItems: "Center",
+                            items: (sHex !== "")
+                                ? [
+                                    new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
+                                    new sap.m.Text({ text: sLegendText }).addStyleClass("sapUiSmallMarginBegin")
+                                ]
+                                : [new sap.m.Text({ text: sLegendText })]
+                        }).addStyleClass("sapUiTinyMarginTopBottom")
+                    );
                 });
             } else {
-                // POST response rows: component-specific traffic light data — show unique legend+colour combinations only
-                var oSeenPost = {};
-                var bAnyItem = false;
+                // POST response rows: component-specific traffic light data — group by unique colors
+                var oColorMapPost = {};
                 aDisplayRows.forEach(function (oRow) {
                     var vTrafficLight = fnUnwrap(oRow.TrafficLight);
                     var sLegendName = String(
@@ -268,24 +281,38 @@ sap.ui.define([
                     if (vTrafficLight !== null && vTrafficLight !== undefined && vTrafficLight !== "") {
                         sHex = isNaN(Number(vTrafficLight)) ? String(vTrafficLight) : self._tcolorToHex(Number(vTrafficLight));
                     }
-                        if (sHex || sLegendName) {
-                            var sKey = sHex + "|" + sLegendName;
-                            if (oSeenPost[sKey]) { return; }
-                            oSeenPost[sKey] = true;
-                            oVBox.addItem(
-                                new sap.m.HBox({
-                                    alignItems: "Center",
-                                    items: (sHex !== "")
-                                        ? [
-                                            new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
-                                            new sap.m.Text({ text: sLegendName && sLegendName.trim() !== "" ? sLegendName : "N/A" }).addStyleClass("sapUiSmallMarginBegin")
-                                        ]
-                                        : [new sap.m.Text({ text: sLegendName && sLegendName.trim() !== "" ? sLegendName : "N/A" })]
-                                }).addStyleClass("sapUiTinyMarginTopBottom")
-                            );
-                            bAnyItem = true;
-                        }
+                    // Only process if we have a hex color (display with N/A legend if legend is empty)
+                    if (!sHex) { return; }
+                    
+                    if (!oColorMapPost[sHex]) {
+                        oColorMapPost[sHex] = [];
+                    }
+                    // Add legend name if not already in the list
+                    var sCleanLegend = sLegendName && sLegendName.trim() !== "" ? sLegendName : "N/A";
+                    if (oColorMapPost[sHex].indexOf(sCleanLegend) === -1) {
+                        oColorMapPost[sHex].push(sCleanLegend);
+                    }
                 });
+                
+                // Display all unique colors with their legend values
+                var bAnyItem = false;
+                Object.keys(oColorMapPost).forEach(function (sHex) {
+                    var aLegends = oColorMapPost[sHex];
+                    var sLegendText = aLegends.join(", ");
+                    oVBox.addItem(
+                        new sap.m.HBox({
+                            alignItems: "Center",
+                            items: (sHex !== "")
+                                ? [
+                                    new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
+                                    new sap.m.Text({ text: sLegendText }).addStyleClass("sapUiSmallMarginBegin")
+                                ]
+                                : [new sap.m.Text({ text: sLegendText })]
+                        }).addStyleClass("sapUiTinyMarginTopBottom")
+                    );
+                    bAnyItem = true;
+                });
+                
                 if (!bAnyItem) {
                     oVBox.addItem(new sap.m.Text({ text: "No details available" }));
                 }
