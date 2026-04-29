@@ -241,17 +241,17 @@ sap.ui.define([
                     var sKey = sHex + "|" + sName;
                     if (oSeenLegend[sKey]) { return; }
                     oSeenLegend[sKey] = true;
-                    oVBox.addItem(
-                        new sap.m.HBox({
-                            alignItems: "Center",
-                            items: sHex
-                                ? [
-                                    new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
-                                    new sap.m.Text({ text: sName }).addStyleClass("sapUiSmallMarginBegin")
-                                ]
-                                : [new sap.m.Text({ text: sName })]
-                        }).addStyleClass("sapUiTinyMarginTopBottom")
-                    );
+                        oVBox.addItem(
+                            new sap.m.HBox({
+                                alignItems: "Center",
+                                items: (sHex !== "")
+                                    ? [
+                                        new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
+                                        new sap.m.Text({ text: sName && sName.trim() !== "" ? sName : "N/A" }).addStyleClass("sapUiSmallMarginBegin")
+                                    ]
+                                    : [new sap.m.Text({ text: sName && sName.trim() !== "" ? sName : "N/A" })]
+                            }).addStyleClass("sapUiTinyMarginTopBottom")
+                        );
                 });
             } else {
                 // POST response rows: component-specific traffic light data — show unique legend+colour combinations only
@@ -268,23 +268,23 @@ sap.ui.define([
                     if (vTrafficLight !== null && vTrafficLight !== undefined && vTrafficLight !== "") {
                         sHex = isNaN(Number(vTrafficLight)) ? String(vTrafficLight) : self._tcolorToHex(Number(vTrafficLight));
                     }
-                    if (sHex || sLegendName) {
-                        var sKey = sHex + "|" + sLegendName;
-                        if (oSeenPost[sKey]) { return; }
-                        oSeenPost[sKey] = true;
-                        oVBox.addItem(
-                            new sap.m.HBox({
-                                alignItems: "Center",
-                                items: sHex
-                                    ? [
-                                        new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
-                                        new sap.m.Text({ text: sLegendName || sHex }).addStyleClass("sapUiSmallMarginBegin")
-                                    ]
-                                    : [new sap.m.Text({ text: sLegendName })]
-                            }).addStyleClass("sapUiTinyMarginTopBottom")
-                        );
-                        bAnyItem = true;
-                    }
+                        if (sHex || sLegendName) {
+                            var sKey = sHex + "|" + sLegendName;
+                            if (oSeenPost[sKey]) { return; }
+                            oSeenPost[sKey] = true;
+                            oVBox.addItem(
+                                new sap.m.HBox({
+                                    alignItems: "Center",
+                                    items: (sHex !== "")
+                                        ? [
+                                            new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
+                                            new sap.m.Text({ text: sLegendName && sLegendName.trim() !== "" ? sLegendName : "N/A" }).addStyleClass("sapUiSmallMarginBegin")
+                                        ]
+                                        : [new sap.m.Text({ text: sLegendName && sLegendName.trim() !== "" ? sLegendName : "N/A" })]
+                                }).addStyleClass("sapUiTinyMarginTopBottom")
+                            );
+                            bAnyItem = true;
+                        }
                 });
                 if (!bAnyItem) {
                     oVBox.addItem(new sap.m.Text({ text: "No details available" }));

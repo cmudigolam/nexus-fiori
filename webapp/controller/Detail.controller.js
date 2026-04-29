@@ -1130,7 +1130,7 @@ sap.ui.define([
                     var oDatePicker = new sap.m.DatePicker({
                         displayFormat: "dd MMM yyyy",
                         showWeekNumbers: false,
-                        placeholder: "e.g. 01 Jan 2025"
+                        placeholder: oField.blankText || ""
                     });
                     this._makeDatePickerOnly(oDatePicker);
                     return oDatePicker;
@@ -1139,14 +1139,14 @@ sap.ui.define([
                         displayFormat: "hh:mm:ss a",
                         valueFormat: "HH:mm:ss",
                         width: "100%",
-                        placeholder: "e.g. 09:30:00 AM"
+                        placeholder: oField.blankText || ""
                     });
                 case 11: // Date and Time field
                     return new sap.m.DateTimePicker({
                         displayFormat: "dd MMM yyyy HH:mm:ss",
                         showWeekNumbers: false,
                         width: "100%",
-                        placeholder: "e.g. 01 Jan 2025 09:30:00"
+                        placeholder: oField.blankText || ""
                     });
                 case 5: // Boolean field
                     return new sap.m.CheckBox({
@@ -1155,7 +1155,7 @@ sap.ui.define([
                 case 3: // Integer / Whole number field (no decimals)
                     var oIntInput = new sap.m.Input({
                         type: "Number",
-                        placeholder: "e.g. 12345",
+                        placeholder: oField.blankText || "",
                         liveChange: function (oEvent) {
                             var oInput = oEvent.getSource();
                             var sVal = oInput.getValue();
@@ -1179,19 +1179,19 @@ sap.ui.define([
                 case 6: // Numeric field
                     return new sap.m.Input({
                         type: "Number",
-                        placeholder: "e.g. 123.45"
+                        placeholder: oField.blankText || ""
                     });
                 case 16: // Multi-line text field
                     return new sap.m.TextArea({
                         growing: true,
                         growingMaxLines: 6,
                         width: "100%",
-                        placeholder: "Enter text"
+                        placeholder: oField.blankText || ""
                     });
                 case 37: // Editable dropdown field (ComboBox)
                     var oSelect = new sap.m.ComboBox({
                         width: "100%",
-                        placeholder: "Select or enter value"
+                        placeholder: oField.blankText || ""
                     });
                     this._makeComboBoxSelectOnly(oSelect);
                     return oSelect;
@@ -1202,12 +1202,12 @@ sap.ui.define([
                             growing: true,
                             growingMaxLines: 6,
                             width: "100%",
-                            placeholder: "Enter text"
+                            placeholder: oField.blankText || ""
                         });
                     }
                     return new sap.m.Input({
                         enabled: false,
-                        placeholder: "Enter value"
+                        placeholder: oField.blankText || ""
                     });
                 case 18: // Nested lookup or sub-table
                     if (oField.nestedField && oField.nestedField.lookupListId) {
@@ -1223,12 +1223,12 @@ sap.ui.define([
                     }
                     return new sap.m.Input({
                         enabled: false,
-                        placeholder: "Enter value"
+                        placeholder: oField.blankText || ""
                     });
                 case 42: // Sub-table
                     return new sap.m.Input({
                         enabled: false,
-                        placeholder: "Enter value"
+                        placeholder: oField.blankText || ""
                     });
                 case 57: // Global table look
                     var oSelect = new sap.m.Select({
@@ -1238,7 +1238,7 @@ sap.ui.define([
                 default: // Text field
                     return new sap.m.Input({
                         type: "Text",
-                        placeholder: "Enter value"
+                        placeholder: oField.blankText || ""
                     });
             }
         },
