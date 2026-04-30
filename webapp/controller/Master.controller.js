@@ -234,33 +234,46 @@ sap.ui.define([
                 aDisplayRows.forEach(function (oRow) {
                     var sName = String(fnUnwrap(oRow.Name) !== null && fnUnwrap(oRow.Name) !== undefined ? fnUnwrap(oRow.Name) : "");
                     var vColour = fnUnwrap(oRow.Colour);
-                    var sHex = "";
-                    if (vColour !== null && vColour !== undefined && vColour !== "") {
-                        sHex = isNaN(Number(vColour)) ? String(vColour) : self._tcolorToHex(Number(vColour));
+                    // Skip only if Colour is null/undefined/empty - don't skip if hex conversion fails
+                    if (vColour === null || vColour === undefined || vColour === "") {
+                        return;
                     }
-                    // Only process if we have a hex color (display with N/A legend if legend is empty)
-                    if (!sHex) { return; }
                     
-                    if (!oColorMap[sHex]) {
-                        oColorMap[sHex] = [];
+                    var sHex = "";
+                    if (isNaN(Number(vColour))) {
+                        sHex = String(vColour);
+                    } else {
+                        sHex = self._tcolorToHex(Number(vColour));
+                    }
+                    
+                    // Use hex as key if valid, otherwise use raw value as fallback
+                    var sColorKey = sHex && sHex.trim() !== "" ? sHex : String(vColour);
+                    
+                    if (!oColorMap[sColorKey]) {
+                        oColorMap[sColorKey] = {
+                            color: sHex,
+                            legends: []
+                        };
                     }
                     // Add legend name if not already in the list
-                    var sCleanName = sName && sName.trim() !== "" ? sName : "N/A";
-                    if (oColorMap[sHex].indexOf(sCleanName) === -1) {
-                        oColorMap[sHex].push(sCleanName);
+                    var sCleanName = sName && sName.trim() !== "" ? sName : "Undefined";
+                    if (oColorMap[sColorKey].legends.indexOf(sCleanName) === -1) {
+                        oColorMap[sColorKey].legends.push(sCleanName);
                     }
                 });
                 
                 // Display all unique colors with their legend values
-                Object.keys(oColorMap).forEach(function (sHex) {
-                    var aLegends = oColorMap[sHex];
+                Object.keys(oColorMap).forEach(function (sColorKey) {
+                    var oColorInfo = oColorMap[sColorKey];
+                    var aLegends = oColorInfo.legends;
                     var sLegendText = aLegends.join(", ");
+                    var sHexColor = oColorInfo.color || sColorKey;
                     oVBox.addItem(
                         new sap.m.HBox({
                             alignItems: "Center",
-                            items: (sHex !== "")
+                            items: (sHexColor !== "" && sHexColor.charAt(0) === "#")
                                 ? [
-                                    new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHex, useIconTooltip: false }),
+                                    new sap.ui.core.Icon({ src: "sap-icon://circle-task-2", size: "1rem", color: sHexColor, useIconTooltip: false }),
                                     new sap.m.Text({ text: sLegendText }).addStyleClass("sapUiSmallMarginBegin")
                                 ]
                                 : [new sap.m.Text({ text: sLegendText })]
@@ -361,6 +374,10 @@ sap.ui.define([
             var self = this;
             var oLocalDataModel = this.getLocalDataModel();
             var aTree = oLocalDataModel.getProperty("/treeTable") || [];
+
+            // Clear previous data when traffic light selection changes
+            self._lastTrafficLightPostRows = [];
+            self._lastTrafficLightGetRows = [];
 
             // Collect all currently loaded component IDs
             var aIds = [];
@@ -1465,6 +1482,10 @@ sap.ui.define([
                         else if (Array.isArray(response && response.rows)) { aRows = response.rows; }
                         else if (Array.isArray(response)) { aRows = response; }
 
+                        // APPEND POST rows for popover display (preserve existing colors from parent/earlier expands)
+                        var aExistingRows = Array.isArray(self._lastTrafficLightPostRows) ? self._lastTrafficLightPostRows : [];
+                        self._lastTrafficLightPostRows = aExistingRows.concat(aRows);
+
                         function unwrap(v) { return (v !== null && v !== undefined && typeof v === "object" && "value" in v) ? v.value : v; }
 
                         var oColorMap = self._trafficLightColorMap || {};
@@ -1514,6 +1535,8 @@ sap.ui.define([
                                 } else if (Array.isArray(getLegendResponse && getLegendResponse.rows)) {
                                     aLegendRows = getLegendResponse.rows;
                                 }
+                                // Store legend rows for popover display
+                                self._lastTrafficLightGetRows = aLegendRows;
                                 if (aLegendRows.length > 0) {
                                     self._updateLegendFooterFromRows(aLegendRows);
                                 } else {
@@ -1522,6 +1545,7 @@ sap.ui.define([
                                 self.setBusyOff();
                             },
                             "error": function () {
+                                self._lastTrafficLightGetRows = [];
                                 self._updateLegendFooter();
                                 self.setBusyOff();
                             }
@@ -1531,6 +1555,9 @@ sap.ui.define([
                         // On error, bump version so existing parent dots remain visible
                         var iVer = oLocalDataModel.getProperty("/trafficLightVersion") || 0;
                         oLocalDataModel.setProperty("/trafficLightVersion", iVer + 1);
+                        // Clear stored rows on error
+                        self._lastTrafficLightPostRows = [];
+                        self._lastTrafficLightGetRows = [];
                         self.setBusyOff();
                     }
                 });

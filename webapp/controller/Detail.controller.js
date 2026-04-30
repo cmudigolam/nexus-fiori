@@ -515,6 +515,10 @@ sap.ui.define([
                 if (self._pendingLookupCount === 0) {
                     self._loadFormData(sTableName);
                 }
+                // Attach change handlers to all form fields for live validation
+                setTimeout(function () {
+                    self._attachFormFieldChangeHandlers();
+                }, 300);
             };
 
             var sHash = self.getLocalDataModel().getProperty("/HashToken");
@@ -580,6 +584,16 @@ sap.ui.define([
                                     filterField: sFilterField
                                 };
                             }
+                            
+                            // Store mapping from expanded field names back to original API field name
+                            // This allows _populateFormFields to find values for expanded BO fields
+                            if (!self._expandedFieldToApiFieldMap) {
+                                self._expandedFieldToApiFieldMap = {};
+                            }
+                            aResponseFields.forEach(function (oExpandedField) {
+                                var sExpandedFieldName = oExpandedField.fieldName || oExpandedField.name;
+                                self._expandedFieldToApiFieldMap[sExpandedFieldName] = sParentFieldName;
+                            });
 
                             // Always call /bo/{businessObjectName} to load dropdown options unconditionally.
                             // The parent-record fetch is a secondary step only to pre-select the current value.
@@ -1743,6 +1757,8 @@ sap.ui.define([
                         } else if (Array.isArray(response) && response.length > 0) {
                             oRecord = response[0];
                         }
+                        // Apply saved values to BO-scoped Select fields (after _populateFormFields which skips them)
+                        self._applyBoScopedFieldValues(oRecord);
                         // Resolve display text for fields with nestedField.lookupListId
                         self._resolveNestedLookupFields(oRecord, sResolvedHash);
                         var sComponentId = oRecord && oRecord.Component_ID;
@@ -1964,11 +1980,167 @@ sap.ui.define([
                 }
             }
 
+            // Apply updatedValues from validation response to form fields
+            if (oValidationResponse.updatedValues && typeof oValidationResponse.updatedValues === "object") {
+                var oUpdatedValues = oValidationResponse.updatedValues;
+                Object.keys(oUpdatedValues).forEach(function (sFieldKey) {
+                    var oControl = self._fieldControlMap[sFieldKey];
+                    if (!oControl) { return; }
+                    var vValue = oUpdatedValues[sFieldKey];
+                    
+                    if (oControl.isA && oControl.isA("sap.m.Select")) {
+                        oControl.setSelectedKey(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                    } else if (oControl.isA && oControl.isA("sap.m.ComboBox")) {
+                        oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                    } else if (oControl.isA && oControl.isA("sap.m.Input")) {
+                        oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                    } else if (oControl.isA && oControl.isA("sap.m.TextArea")) {
+                        oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                    } else if (oControl.isA && oControl.isA("sap.m.CheckBox")) {
+                        oControl.setSelected(!!vValue);
+                    } else if (oControl.isA && oControl.isA("sap.m.DatePicker")) {
+                        if (vValue) {
+                            var oDate = new Date(vValue);
+                            if (!isNaN(oDate.getTime())) {
+                                oControl.setDateValue(oDate);
+                            } else {
+                                oControl.setValue(String(vValue));
+                            }
+                        }
+                    } else if (oControl.isA && oControl.isA("sap.m.TimePicker")) {
+                        oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                    }
+                });
+            }
+
+            // Apply readOnly state from updateStates
+            if (oValidationResponse.updateStates && Array.isArray(oValidationResponse.updateStates)) {
+                oValidationResponse.updateStates.forEach(function (oState) {
+                    if (oState.readOnly !== undefined) {
+                        var sFieldKey = oState.fieldName || oState.name;
+                        var oControl = self._fieldControlMap[sFieldKey];
+                        if (oControl && oControl.setEditable) {
+                            oControl.setEditable(!oState.readOnly);
+                        }
+                    }
+                });
+            }
+
             // Re-apply colour backgrounds after SAPUI5 flushes its render queue
             // (setVisible above triggers re-render which wipes inline styles)
             var self = this;
             setTimeout(function () { self._reapplyColourSwatches(); }, 0);
         },
+        /**
+         * Gathers current form field values into a payload object for the validation API.
+         */
+        _getFormDataPayload: function () {
+            var oPayload = {};
+            var self = this;
+            
+            if (!this._fieldControlMap) {
+                return oPayload;
+            }
+            
+            Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
+                var oControl = self._fieldControlMap[sFieldKey];
+                if (!oControl) { return; }
+                
+                var vValue;
+                if (oControl.isA && oControl.isA("sap.m.Select")) {
+                    vValue = oControl.getSelectedKey();
+                } else if (oControl.isA && oControl.isA("sap.m.ComboBox")) {
+                    vValue = oControl.getValue();
+                } else if (oControl.isA && oControl.isA("sap.m.Input")) {
+                    vValue = oControl.getValue();
+                } else if (oControl.isA && oControl.isA("sap.m.TextArea")) {
+                    vValue = oControl.getValue();
+                } else if (oControl.isA && oControl.isA("sap.m.CheckBox")) {
+                    vValue = oControl.getSelected();
+                } else if (oControl.isA && oControl.isA("sap.m.DatePicker")) {
+                    var oDate = oControl.getDateValue();
+                    vValue = oDate ? oDate.toISOString() : null;
+                } else if (oControl.isA && oControl.isA("sap.m.TimePicker")) {
+                    return; // Skip TimePicker fields - backend validation rejects time-only values
+                } else if (oControl.isA && oControl.isA("sap.ui.table.Table")) {
+                    return; // Skip table controls
+                }
+                
+                if (vValue !== undefined && vValue !== null && vValue !== "") {
+                    oPayload[sFieldKey] = vValue;
+                }
+            });
+            
+            return oPayload;
+        },
+        
+        /**
+         * Attach change handlers to all form fields to trigger validation on change.
+         */
+        _attachFormFieldChangeHandlers: function () {
+            var self = this;
+            if (!this._fieldControlMap) {
+                return;
+            }
+            
+            Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
+                var oControl = self._fieldControlMap[sFieldKey];
+                if (!oControl) { return; }
+                
+                // Create a debounced handler to avoid too many API calls
+                var fnOnFieldChange = function () {
+                    if (self._validationDebounceTimer) {
+                        clearTimeout(self._validationDebounceTimer);
+                    }
+                    self._validationDebounceTimer = setTimeout(function () {
+                        self._triggerFieldValidation();
+                    }, 500); // 500ms debounce
+                };
+                
+                // Attach appropriate change event based on control type
+                if (oControl.attachChange) {
+                    oControl.attachChange(fnOnFieldChange);
+                }
+                if (oControl.attachLiveChange) {
+                    oControl.attachLiveChange(fnOnFieldChange);
+                }
+                if (oControl.attachSelect) {
+                    oControl.attachSelect(fnOnFieldChange);
+                }
+            });
+        },
+        
+        /**
+         * Trigger validation API call with current form data.
+         */
+        _triggerFieldValidation: function () {
+            var sTableName = this._formDataTableName;
+            var oLocalDataModel = this.getLocalDataModel();
+            var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
+            var sHash = oLocalDataModel.getProperty("/HashToken");
+            
+            if (!sTableName || !sComponentId || !sHash) {
+                return;
+            }
+            
+            var self = this;
+            var oPayload = this._getFormDataPayload();
+            
+            $.ajax({
+                "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sTableName) + "/validate/" + encodeURIComponent(sComponentId) + "?hash=" + encodeURIComponent(sHash),
+                "method": "POST",
+                "contentType": "application/json",
+                "dataType": "json",
+                "data": JSON.stringify(oPayload),
+                "success": function (response) {
+                    self._updateFieldVisibilityFromValidation(response);
+                },
+                "error": function () {
+                    // Silently handle validation errors
+                }
+            });
+        },
+
         _onFieldImageButtonPress: function (sFieldKey) {
             var oLocalDataModel = this.getLocalDataModel();
             var sComponentId = oLocalDataModel.getProperty("/sCompoonentID");
@@ -2561,6 +2733,9 @@ sap.ui.define([
                     }
                     var sValueStr = String(vValue).trim();
                     this._setSelectValue(oControl, sValueStr);
+                } else if (oControl && (vValue === "" || vValue === null || vValue === undefined)) {
+                    // Handle empty value - explicitly set to empty selection
+                    this._setSelectValue(oControl, "");
                 }
             }
 
@@ -2709,15 +2884,27 @@ sap.ui.define([
          */
         _setSelectValue: function (oControl, sValue) {
             var aItems = oControl.getItems();
+            // For empty value, explicitly select the empty item (first item, typically)
+            if (sValue === "" || sValue === null || sValue === undefined) {
+                for (var i = 0; i < aItems.length; i++) {
+                    if (aItems[i].getKey() === "" || aItems[i].getText() === "") {
+                        oControl.setSelectedItem(aItems[i]);
+                        return;
+                    }
+                }
+                // If no empty item found, clear selection
+                oControl.setSelectedKey("");
+                return;
+            }
+            // For non-empty values, find exact match
             for (var i = 0; i < aItems.length; i++) {
                 if (aItems[i].getKey() === sValue || aItems[i].getText() === sValue) {
                     oControl.setSelectedItem(aItems[i]);
                     return;
                 }
             }
-            if (aItems.length > 0) {
-                oControl.setSelectedItem(aItems[0]);
-            }
+            // No match found - don't default to first item, leave selection as-is or clear it
+            oControl.setSelectedKey("");
         },
 
         /**
@@ -2781,6 +2968,63 @@ sap.ui.define([
             }
         },
 
+        /**
+         * Apply saved values to BO-scoped Select fields.
+         * Called after _populateFormFields to override the default selections made by _populateLinkedFields.
+         */
+        _applyBoScopedFieldValues: function (oRecord) {
+            if (!oRecord || !this._boScopedControlMap) {
+                return;
+            }
+
+            var self = this;
+            Object.keys(this._boScopedControlMap).forEach(function (sBusinessObjectName) {
+                var oBoControls = self._boScopedControlMap[sBusinessObjectName];
+                if (!oBoControls) { return; }
+
+                Object.keys(oBoControls).forEach(function (sFieldKey) {
+                    var oControl = oBoControls[sFieldKey];
+                    var vValue = oRecord[sFieldKey];
+                    
+                    // For expanded BO fields, try mapping back to original API field name
+                    if (!vValue && self._expandedFieldToApiFieldMap && self._expandedFieldToApiFieldMap[sFieldKey]) {
+                        var sApiFieldName = self._expandedFieldToApiFieldMap[sFieldKey];
+                        vValue = oRecord[sApiFieldName];
+                        console.log("[_applyBoScopedFieldValues] Mapped expanded field", sFieldKey, "to API field", sApiFieldName, "vValue:", vValue);
+                    }
+
+                    if (!oControl || !oControl.isA("sap.m.Select")) {
+                        return;
+                    }
+
+                    // Handle empty/null values explicitly
+                    if (vValue === undefined || vValue === null || vValue === "") {
+                        // No saved value — set to empty
+                        self._applyComboBoxValue(oControl, sFieldKey, "");
+                        return;
+                    }
+
+                    // Convert nested objects (e.g. {id: 123, value: "..."}) to simple string
+                    var sValueStr;
+                    if (vValue && typeof vValue === "object" && !Array.isArray(vValue)) {
+                        var vId = (vValue.LI_ID !== undefined && vValue.LI_ID !== null) ? vValue.LI_ID
+                            : (vValue.id !== undefined && vValue.id !== null ? vValue.id : null);
+                        var vTxt = (vValue.Value !== undefined && vValue.Value !== null) ? vValue.Value : null;
+                        sValueStr = vId !== null ? String(vId).trim() : (vTxt !== null ? String(vTxt).trim() : "");
+                    } else {
+                        sValueStr = String(vValue).trim();
+                    }
+
+                    // Apply the saved value using _applyComboBoxValue which has better matching logic
+                    if (sValueStr !== "") {
+                        self._applyComboBoxValue(oControl, sFieldKey, sValueStr);
+                    } else {
+                        self._applyComboBoxValue(oControl, sFieldKey, "");
+                    }
+                });
+            });
+        },
+
         _populateFormFields: function (oData) {
             if (!oData || !this._fieldControlMap) {
                 return;
@@ -2793,29 +3037,43 @@ sap.ui.define([
             } else if (Array.isArray(oData) && oData.length > 0) {
                 oRecord = oData[0];
             }
+            
+            console.log("[_populateFormFields] oRecord keys:", Object.keys(oRecord), "oRecord:", oRecord);
+            
             // Initialize pending ComboBox values
             if (!this._pendingComboBoxValues) {
                 this._pendingComboBoxValues = {};
             }
 
             var self = this;
+            console.log("[_populateFormFields] _fieldControlMap keys:", Object.keys(this._fieldControlMap));
+            console.log("[_populateFormFields] _fieldBusinessObjectMap:", this._fieldBusinessObjectMap);
             Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
                 var oControl = self._fieldControlMap[sFieldKey];
 
-                // Skip only when the _fieldControlMap entry IS the BO-scoped control.
-                // If a non-BO control shares the same fieldName (e.g. "Generic_Material" old field
-                // vs LT_-expanded cascade field), the non-BO control must still be populated here.
+                // Skip BO-scoped Select/ComboBox controls — they're handled by _populateLinkedFields (cascade dropdowns)
+                // BUT: Do NOT skip expanded BO fields (non-Select types) — they should be populated with record values
                 var sBoName = self._fieldBusinessObjectMap && self._fieldBusinessObjectMap[sFieldKey];
                 if (sBoName) {
                     var oBoCtrl = self._boScopedControlMap &&
                         self._boScopedControlMap[sBoName] &&
                         self._boScopedControlMap[sBoName][sFieldKey];
-                    if (oBoCtrl === oControl) {
-                        return; // This IS the BO-scoped control — skip, handled by _populateLinkedFields
+                    if (oBoCtrl === oControl && (oControl.isA("sap.m.Select") || oControl.isA("sap.m.ComboBox"))) {
+                        return; // This IS the BO-scoped Select/ComboBox — skip, handled by _populateLinkedFields
                     }
+                    // For non-Select BO fields (expanded Input, TextArea, DatePicker, etc.), continue and populate with record value
                 }
 
                 var vValue = oRecord[sFieldKey];
+                
+                // For expanded BO fields, try mapping back to original API field name
+                if (!vValue && self._expandedFieldToApiFieldMap && self._expandedFieldToApiFieldMap[sFieldKey]) {
+                    var sApiFieldName = self._expandedFieldToApiFieldMap[sFieldKey];
+                    vValue = oRecord[sApiFieldName];
+                    console.log("[_populateFormFields] Mapped expanded field", sFieldKey, "to API field", sApiFieldName, "vValue:", vValue);
+                }
+                
+                console.log("[_populateFormFields] sFieldKey:", sFieldKey, "vValue:", vValue, "sBoName:", sBoName);
 
                 if (vValue === undefined || vValue === null) {
                     return;
@@ -2984,6 +3242,7 @@ sap.ui.define([
 
                     if (aItems && aItems.length > 0) {
                         // Items already loaded — reset to blank first, then apply matched value
+                        // This preserves empty values by passing them to _applyComboBoxValue
                         oControl.setSelectedKey("");
                         self._applyComboBoxValue(oControl, sFieldKey, sValueStr);
                     } else {
@@ -3127,7 +3386,9 @@ sap.ui.define([
                 if (oField.required && Number(oField.fieldTypeId) !== 5) {
                     var sFieldKey = oField.fieldName || oField.name;
                     var oControl = self._fieldControlMap[sFieldKey];
-
+                    if(oField.fieldName == "Component_ID"){
+                        return
+                    }
                     if (oControl) {
                         var bIsValid = false;
 
@@ -3166,6 +3427,18 @@ sap.ui.define([
 
             // Normalize the value for comparison
             var sNormalizedValue = String(sValue).trim();
+
+            // Special handling for empty value — explicitly select empty item
+            if (sNormalizedValue === "") {
+                for (var i = 0; i < aItems.length; i++) {
+                    if (aItems[i].getKey() === "" || aItems[i].getText() === "") {
+                        oSelect.setSelectedKey("");
+                        return;
+                    }
+                }
+                oSelect.setSelectedKey("");
+                return;
+            }
 
             // Priority 1: Match by key (LI_ID) — database stores the LI_ID integer, not the display text
             var matchedKey = null;
@@ -3373,15 +3646,33 @@ sap.ui.define([
                 });
             }
             // Resolve BO cascade selections back to parent link field values
+            // NOTE: Skip expanded BO fields (those with _businessObjectName) as they should be saved
+            // directly as individual field values, not resolved back to a parent field.
             if (this._boParentFieldMap && this._boScopedControlMap && this._linkedDataByBO) {
                 var oBoParentFieldMap = this._boParentFieldMap;
                 var oBoScopedControlMap = this._boScopedControlMap;
                 var oLinkedDataByBO = this._linkedDataByBO;
+                var oFormDataModel = this._oFormDialog.getModel("FormData");
+                var oFormData = oFormDataModel ? oFormDataModel.getProperty("/formData") : {};
+                var aAllFormFields = Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [];
+                
                 Object.keys(oBoParentFieldMap).forEach(function (sBoName) {
                     var oMapping = oBoParentFieldMap[sBoName];
                     var oBoControls = oBoScopedControlMap[sBoName];
                     var aBoRows = oLinkedDataByBO[sBoName];
                     if (!oMapping || !oBoControls || !aBoRows || !aBoRows.length) { return; }
+
+                    // Check if any of the BO controls are expanded fields (have _businessObjectName)
+                    // If so, skip BO cascade resolution — expanded fields are saved directly
+                    var bHasExpandedFields = Object.keys(oBoControls).some(function (sFieldKey) {
+                        var oField = aAllFormFields.find(function (f) {
+                            return (f.fieldName || f.name) === sFieldKey && f._businessObjectName;
+                        });
+                        return !!oField;
+                    });
+                    if (bHasExpandedFields) {
+                        return; // Skip BO cascade resolution for expanded BO fields
+                    }
 
                     // Filter rows by all current cascade Select values
                     var aFiltered = aBoRows;
@@ -3407,6 +3698,7 @@ sap.ui.define([
                 });
             }
             self.setBusyOn();
+            oPayload.Component_ID = sComponentId; // Ensure Component_ID is included in payload for backend lookup
             var fnPostData = function (sResolvedHash) {
                 self.setBusyOn();
                 $.ajax({
