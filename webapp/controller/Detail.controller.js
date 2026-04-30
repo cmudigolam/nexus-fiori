@@ -212,6 +212,12 @@ sap.ui.define([
             } else {
                 oLocalDataModel.setProperty("/shareUrl", this.getResourceBundle().getText("tooltipShareNavigate"));
             }
+
+            // Force breadcrumb rebuild on every route match so the breadcrumb is always
+            // in sync with the selected node — even on the first navigation where the
+            // Detail view was not yet instantiated when the UpdateBreadcrumb event fired.
+            this._sPreviousSelectedNodeId = null;
+            this.updateBreadcrumb();
         },
 
         updateBreadcrumb: function () {
@@ -960,7 +966,7 @@ sap.ui.define([
                             }
                         }
 
-                        if (bVisible && Number(oField.fieldTypeId) == 40 && !oField.subTableId) {
+                        if (Number(oField.fieldTypeId) == 40 && !oField.subTableId) {
                             // Create Button
                             var oButton = new sap.m.Button({
                                 text: "ƒ",
@@ -969,6 +975,8 @@ sap.ui.define([
                             oButton.addStyleClass("italicButton");
 
                             // Input fills remaining space; button and unit link stay compact
+                            // Reset input visibility to true — the HBox controls overall visibility
+                            oInput.setVisible(true);
                             oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
                             oButton.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
                             var aHBoxItems = [oInput, oButton];
@@ -981,7 +989,8 @@ sap.ui.define([
                                 items: aHBoxItems,
                                 renderType: "Bare",
                                 alignItems: "Center",
-                                width: "100%"
+                                width: "100%",
+                                visible: bVisible
                             });
                             if (sFieldKey) {
                                 self._fieldVisibilityMap[sFieldKey].container = oHBox;
@@ -1216,13 +1225,21 @@ sap.ui.define([
                     });
                     this._makeComboBoxSelectOnly(oSelect);
                     return oSelect;
-                case 40: // Sub-table
+                case 40: // Calculated field — render based on editorTypeId / displayFieldTypeId
                     if (Number(oField.editorTypeId) === 12) {
                         return new sap.m.TextArea({
                             enabled: false,
                             growing: true,
                             growingMaxLines: 6,
                             width: "100%",
+                            placeholder: oField.blankText || ""
+                        });
+                    }
+                    if (Number(oField.editorTypeId) === 11) {
+                        // editorTypeId 11 = calculated numeric field — display only
+                        return new sap.m.Input({
+                            type: "Number",
+                            enabled: false,
                             placeholder: oField.blankText || ""
                         });
                     }
@@ -1894,12 +1911,6 @@ sap.ui.define([
                     return;
                 }
 
-                // Rule 1: If formVisible is false from metadata, field is HIDDEN
-                if (oField.formVisible === false) {
-                    fnSetFieldVisible(sFieldKey, false);
-                    return;
-                }
-
                 // Rule 1b: Expanded BO fields (from foreign table) are governed by
                 // gridVisible, not by the parent table's validation updateStates.
                 // Keep them visible and skip the updateStates check.
@@ -1909,7 +1920,6 @@ sap.ui.define([
                     return;
                 }
 
-                // Rule 2: formVisible is true or not specified, check updateStates
                 var bFieldVisible = true; // default visibility
 
                 if (bHasUpdateStates) {
@@ -1924,22 +1934,18 @@ sap.ui.define([
                         oFieldUpdateState = oUpdateStates[sFieldKey] || oUpdateStates[String(sFieldKey)];
                     }
 
-                    // If field found in updateStates, check its visible property
                     if (oFieldUpdateState !== undefined && oFieldUpdateState !== null) {
-                        if (oFieldUpdateState.visible !== undefined) {
-                            // visible property exists -> use its value
-                            bFieldVisible = oFieldUpdateState.visible === true;
-                        } else {
-                            // visible property doesn't exist -> default to visible
-                            bFieldVisible = true;
-                        }
+                        // updateStates from server takes priority over formVisible metadata
+                        bFieldVisible = oFieldUpdateState.visible !== undefined
+                            ? oFieldUpdateState.visible === true
+                            : true;
                     } else {
-                        // Field NOT found in updateStates -> default to visible
-                        bFieldVisible = true;
+                        // Field NOT in updateStates -> fall back to formVisible metadata
+                        bFieldVisible = oField.formVisible !== false;
                     }
                 } else {
-                    // No updateStates in response -> default to visible
-                    bFieldVisible = true;
+                    // No updateStates -> fall back to formVisible metadata
+                    bFieldVisible = oField.formVisible !== false;
                 }
 
                 fnSetFieldVisible(sFieldKey, bFieldVisible);
@@ -2028,9 +2034,27 @@ sap.ui.define([
                 });
             }
 
+            // Apply invalidFields: mark labels as required (red *) to indicate mandatory fields
+            // First, clear any previously applied required state on all labels
+            Object.keys(self._fieldControlMap).forEach(function (sKey) {
+                var oTargets = self._fieldVisibilityMap && self._fieldVisibilityMap[sKey];
+                if (oTargets && oTargets.label && oTargets.label.setRequired) {
+                    oTargets.label.setRequired(false);
+                }
+            });
+            if (oValidationResponse.invalidFields && Array.isArray(oValidationResponse.invalidFields)) {
+                oValidationResponse.invalidFields.forEach(function (oInvalid) {
+                    var sFieldKey = oInvalid.field;
+                    if (!sFieldKey) { return; }
+                    var oTargets = self._fieldVisibilityMap && self._fieldVisibilityMap[sFieldKey];
+                    if (oTargets && oTargets.label && oTargets.label.setRequired) {
+                        oTargets.label.setRequired(true);
+                    }
+                });
+            }
+
             // Re-apply colour backgrounds after SAPUI5 flushes its render queue
             // (setVisible above triggers re-render which wipes inline styles)
-            var self = this;
             setTimeout(function () { self._reapplyColourSwatches(); }, 0);
         },
         /**
@@ -3114,24 +3138,24 @@ sap.ui.define([
                     return;
                 }
 
-                // Handle error object values (e.g. {"error": "No Credible DM's"})
+                // Handle error object values (e.g. {"error": "CO2 partial pressure is 0"})
+                // Display "NaN" in red to indicate the field could not be calculated
                 if (vValue && typeof vValue === "object" && !Array.isArray(vValue) && vValue.error) {
-                    var sErrorText = String(vValue.error);
                     if (!oControl || !oControl.isA) {
                         return;
                     }
                     if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
-                        oControl.setValue(sErrorText);
+                        oControl.setValue("NaN");
                         oControl.setEditable(false);
                         oControl.addStyleClass("errorValueRedText");
                     } else if (oControl.isA("sap.m.Select") || oControl.isA("sap.m.ComboBox")) {
                         oControl.setEnabled(false);
                         oControl.removeAllItems();
-                        oControl.addItem(new Item({ key: "__error__", text: sErrorText }));
+                        oControl.addItem(new Item({ key: "__error__", text: "NaN" }));
                         oControl.setSelectedKey("__error__");
                         oControl.addStyleClass("errorValueRedText");
                     } else if (oControl.isA("sap.m.DatePicker")) {
-                        oControl.setValue(sErrorText);
+                        oControl.setValue("NaN");
                         oControl.setEditable(false);
                         oControl.addStyleClass("errorValueRedText");
                     }
@@ -3717,7 +3741,9 @@ sap.ui.define([
                     var aChains = aCascadeOrder._chains || [aCascadeOrder.slice()];
                     var bHasCascadeChain = aChains.some(function (aChain) { return aChain.length > 1; });
 
-                    // Only skip cascade resolution if expanded fields exist AND no cascade chain is present
+                    // For global table lookups (expanded BO fields with a valid parent FK mapping),
+                    // remove the expanded field names from the payload — they belong to the lookup
+                    // table, not the parent table — then fall through to resolve the parent FK below.
                     var bHasExpandedFields = !bHasCascadeChain && Object.keys(oBoControls).some(function (sFieldKey) {
                         var oField = aAllFormFields.find(function (f) {
                             return (f.fieldName || f.name) === sFieldKey && f._businessObjectName;
@@ -3725,7 +3751,12 @@ sap.ui.define([
                         return !!oField;
                     });
                     if (bHasExpandedFields) {
-                        return; // Skip BO cascade resolution for independent expanded BO fields
+                        // Purge expanded BO field keys from the payload so the parent table does not
+                        // receive columns that belong to the lookup BO.
+                        Object.keys(oBoControls).forEach(function (sFieldKey) {
+                            delete oPayload[sFieldKey];
+                        });
+                        // Fall through: the row-match logic below will write oPayload[parentFieldName] = PK.
                     }
 
                     // Filter rows by all current cascade Select values
