@@ -1759,6 +1759,18 @@ sap.ui.define([
                         }
                         // Apply saved values to BO-scoped Select fields (after _populateFormFields which skips them)
                         self._applyBoScopedFieldValues(oRecord);
+                        
+                        // Re-populate linked field cascades after fresh read to ensure old values don't persist
+                        if (self._linkedDataByBO) {
+                            Object.keys(self._linkedDataByBO).forEach(function (sBusinessObjectName) {
+                                var oLinkedData = self._linkedDataByBO[sBusinessObjectName];
+                                if (oLinkedData && oLinkedData.rows && oLinkedData.rows.length > 0) {
+                                    // Re-populate the cascade chain with fresh link value from API response
+                                    self._populateLinkedFields(oLinkedData, sBusinessObjectName);
+                                }
+                            });
+                        }
+                        
                         // Resolve display text for fields with nestedField.lookupListId
                         self._resolveNestedLookupFields(oRecord, sResolvedHash);
                         var sComponentId = oRecord && oRecord.Component_ID;
@@ -2715,15 +2727,32 @@ sap.ui.define([
             // Find the matching row based on the parent record's link value
             var oMatchInfo = this._linkedFieldMatchInfo && this._linkedFieldMatchInfo[sBusinessObjectName];
             var oMatchedRow = null;
-            if (oMatchInfo && oMatchInfo.filterField && oMatchInfo.linkValue !== undefined) {
-                oMatchedRow = aRows.find(function (oRow) {
-                    return String(oRow[oMatchInfo.filterField]) === String(oMatchInfo.linkValue);
-                });
+            var bLinkValueIsNull = false; // Track if linkValue is explicitly null (cleared)
+            if (oMatchInfo && oMatchInfo.filterField) {
+                if (oMatchInfo.linkValue === null) {
+                    // linkValue is explicitly null — no matching row, field should remain empty
+                    bLinkValueIsNull = true;
+                } else if (oMatchInfo.linkValue !== undefined) {
+                    oMatchedRow = aRows.find(function (oRow) {
+                        return String(oRow[oMatchInfo.filterField]) === String(oMatchInfo.linkValue);
+                    });
+                }
             }
-            var oFirstRow = oMatchedRow || aRows[0];
+            
+            // Only use first row if linkValue was found or is undefined (initial load)
+            // If linkValue is explicitly null (cleared), don't pre-populate
+            var oFirstRow = bLinkValueIsNull ? null : (oMatchedRow || aRows[0]);
+            
             for (var i = 0; i < aCascadeOrder.length; i++) {
                 var sField = aCascadeOrder[i];
                 var oControl = oBoControls[sField];
+                if (!oFirstRow) {
+                    // No matching row and linkValue is null — clear selection
+                    if (oControl) {
+                        this._setSelectValue(oControl, "");
+                    }
+                    continue;
+                }
                 var vValue = oFirstRow[sField];
                 if (oControl && vValue !== undefined && vValue !== null) {
                     // For non-root fields, filter rows by all ancestor selections first
@@ -2742,6 +2771,7 @@ sap.ui.define([
             // Populate non-Select fields from first row
             aNonSelectFields.forEach(function (sFieldKey) {
                 var oControl = oBoControls[sFieldKey];
+                if (!oFirstRow) { return; } // Skip if no row (linkValue was null)
                 var vValue = oFirstRow[sFieldKey];
                 if (vValue === undefined || vValue === null) { return; }
                 if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea") || oControl.isA("sap.m.TimePicker")) {
@@ -2981,10 +3011,35 @@ sap.ui.define([
             Object.keys(this._boScopedControlMap).forEach(function (sBusinessObjectName) {
                 var oBoControls = self._boScopedControlMap[sBusinessObjectName];
                 if (!oBoControls) { return; }
+                
+                // Update the linkValue in _linkedFieldMatchInfo with the fresh read value
+                // This ensures _populateLinkedFields doesn't override with stale cached value
+                if (self._boParentFieldMap && self._boParentFieldMap[sBusinessObjectName]) {
+                    var oMapping = self._boParentFieldMap[sBusinessObjectName];
+                    var sParentFieldName = oMapping.parentFieldName;
+                    var sFilterField = oMapping.filterField;
+                    var vFreshLinkValue = oRecord[sParentFieldName];
+                    
+                    if (!self._linkedFieldMatchInfo) {
+                        self._linkedFieldMatchInfo = {};
+                    }
+                    if (!self._linkedFieldMatchInfo[sBusinessObjectName]) {
+                        self._linkedFieldMatchInfo[sBusinessObjectName] = {};
+                    }
+                    
+                    // Update with fresh link value from current read
+                    self._linkedFieldMatchInfo[sBusinessObjectName].filterField = sFilterField;
+                    self._linkedFieldMatchInfo[sBusinessObjectName].linkValue = vFreshLinkValue !== undefined ? vFreshLinkValue : null;
+                    
+                    console.log("[_applyBoScopedFieldValues] Updated _linkedFieldMatchInfo for", sBusinessObjectName, 
+                        "linkValue:", self._linkedFieldMatchInfo[sBusinessObjectName].linkValue);
+                }
 
                 Object.keys(oBoControls).forEach(function (sFieldKey) {
                     var oControl = oBoControls[sFieldKey];
                     var vValue = oRecord[sFieldKey];
+                    
+                    console.log("[_applyBoScopedFieldValues] Processing BO field:", sFieldKey, "sBoName:", sBusinessObjectName, "vValue from record:", vValue, "control type:", oControl.getMetadata().getName());
                     
                     // For expanded BO fields, try mapping back to original API field name
                     if (!vValue && self._expandedFieldToApiFieldMap && self._expandedFieldToApiFieldMap[sFieldKey]) {
@@ -2994,6 +3049,7 @@ sap.ui.define([
                     }
 
                     if (!oControl || !oControl.isA("sap.m.Select")) {
+                        console.log("[_applyBoScopedFieldValues] Skipping non-Select control for", sFieldKey);
                         return;
                     }
 
@@ -3050,6 +3106,12 @@ sap.ui.define([
             console.log("[_populateFormFields] _fieldBusinessObjectMap:", this._fieldBusinessObjectMap);
             Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
                 var oControl = self._fieldControlMap[sFieldKey];
+                
+                // Skip if control doesn't exist or is not a UI5 control
+                if (!oControl || typeof oControl !== "object" || !oControl.isA || typeof oControl.isA !== "function") {
+                    console.warn("[_populateFormFields] Skipping invalid control for field:", sFieldKey, "control:", oControl);
+                    return;
+                }
 
                 // Skip BO-scoped Select/ComboBox controls — they're handled by _populateLinkedFields (cascade dropdowns)
                 // BUT: Do NOT skip expanded BO fields (non-Select types) — they should be populated with record values
@@ -3076,12 +3138,25 @@ sap.ui.define([
                 console.log("[_populateFormFields] sFieldKey:", sFieldKey, "vValue:", vValue, "sBoName:", sBoName);
 
                 if (vValue === undefined || vValue === null) {
+                    // Explicitly clear the control when no value is saved
+                    if (oControl.setValue) {
+                        oControl.setValue("");
+                    } else if (oControl.setDateValue) {
+                        oControl.setDateValue(null);
+                    } else if (oControl.setSelected) {
+                        oControl.setSelected(false);
+                    } else if (oControl.removeAllItems) {
+                        oControl.removeAllItems();
+                    }
                     return;
                 }
 
                 // Handle error object values (e.g. {"error": "No Credible DM's"})
                 if (vValue && typeof vValue === "object" && !Array.isArray(vValue) && vValue.error) {
                     var sErrorText = String(vValue.error);
+                    if (!oControl || !oControl.isA) {
+                        return;
+                    }
                     if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                         oControl.setValue(sErrorText);
                         oControl.setEditable(false);
@@ -3097,6 +3172,10 @@ sap.ui.define([
                         oControl.setEditable(false);
                         oControl.addStyleClass("errorValueRedText");
                     }
+                    return;
+                }
+
+                if (!oControl || !oControl.isA) {
                     return;
                 }
 
@@ -3428,15 +3507,21 @@ sap.ui.define([
             // Normalize the value for comparison
             var sNormalizedValue = String(sValue).trim();
 
-            // Special handling for empty value — explicitly select empty item
+            // Special handling for empty value — explicitly clear selection
             if (sNormalizedValue === "") {
+                console.log("[_applyComboBoxValue] Clearing Select for field:", sFieldKey);
+                // First try to find and select an empty item
                 for (var i = 0; i < aItems.length; i++) {
                     if (aItems[i].getKey() === "" || aItems[i].getText() === "") {
                         oSelect.setSelectedKey("");
+                        console.log("[_applyComboBoxValue] Found empty item, set selected key to empty");
                         return;
                     }
                 }
+                // No empty item exists — force clear by setting selectedKey to empty
                 oSelect.setSelectedKey("");
+                oSelect.clearSelection();
+                console.log("[_applyComboBoxValue] No empty item found, forcefully cleared selection");
                 return;
             }
 
