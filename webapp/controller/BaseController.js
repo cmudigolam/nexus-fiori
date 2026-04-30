@@ -115,14 +115,11 @@ sap.ui.define([
          * @returns {Array} Array of breadcrumb objects {name, fullLocation}
          */
         _buildBreadcrumbSegments: function(sFullLocation) {
-            var aBreadcrumb = [];
-            
+            var aBreadcrumb = [];      
             if (!sFullLocation) {
                 return aBreadcrumb;
-            }
-            
-            var segments = this._getPathSegments(sFullLocation);
-            
+            }           
+            var segments = this._getPathSegments(sFullLocation);          
             // Use array.slice().join() instead of string concatenation (O(n) vs O(n²))
             segments.forEach(function(segment, index) {
                 var sFullPath = segments.slice(0, index + 1).join(" / ");
@@ -130,8 +127,7 @@ sap.ui.define([
                     name: segment,
                     fullLocation: sFullPath
                 });
-            });
-            
+            });           
             return aBreadcrumb;
         },
 
