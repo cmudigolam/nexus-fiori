@@ -2718,20 +2718,24 @@ sap.ui.define([
             var oMatchInfo = this._linkedFieldMatchInfo && this._linkedFieldMatchInfo[sBusinessObjectName];
             var oMatchedRow = null;
             var bLinkValueIsNull = false; // Track if linkValue is explicitly null (cleared)
+            console.log("[_populateLinkedFields] BO:", sBusinessObjectName, "oMatchInfo:", JSON.stringify(oMatchInfo), "totalRows:", aRows.length);
             if (oMatchInfo && oMatchInfo.filterField) {
                 if (oMatchInfo.linkValue === null) {
                     // linkValue is explicitly null — no matching row, field should remain empty
                     bLinkValueIsNull = true;
+                    console.log("[_populateLinkedFields] linkValue is null — will clear all fields");
                 } else if (oMatchInfo.linkValue !== undefined) {
                     oMatchedRow = aRows.find(function (oRow) {
                         return String(oRow[oMatchInfo.filterField]) === String(oMatchInfo.linkValue);
                     });
+                    console.log("[_populateLinkedFields] Searching for linkValue:", oMatchInfo.linkValue, "in field:", oMatchInfo.filterField, "→ matched row:", oMatchedRow ? JSON.stringify(oMatchedRow) : "NOT FOUND");
                 }
             }
             
             // Only use first row if linkValue was found or is undefined (initial load)
             // If linkValue is explicitly null (cleared), don't pre-populate
             var oFirstRow = bLinkValueIsNull ? null : (oMatchedRow || aRows[0]);
+            console.log("[_populateLinkedFields] oFirstRow:", oFirstRow ? JSON.stringify(oFirstRow) : "null", "bLinkValueIsNull:", bLinkValueIsNull);
             
             for (var i = 0; i < aCascadeOrder.length; i++) {
                 var sField = aCascadeOrder[i];
@@ -3706,16 +3710,22 @@ sap.ui.define([
                     var aBoRows = oLinkedDataByBO[sBoName];
                     if (!oMapping || !oBoControls || !aBoRows || !aBoRows.length) { return; }
 
-                    // Check if any of the BO controls are expanded fields (have _businessObjectName)
-                    // If so, skip BO cascade resolution — expanded fields are saved directly
-                    var bHasExpandedFields = Object.keys(oBoControls).some(function (sFieldKey) {
+                    // Check if this BO has a genuine cascade chain (at least one chain with > 1 chained fields).
+                    // Cascade chains (e.g. NPS → Schedule) MUST use cascade resolution to save the parent FK.
+                    // Independent expanded fields (e.g. Annulus_Group, Valve_Display_Name) skip cascade and save directly.
+                    var aCascadeOrder = (self._cascadeFieldOrder && self._cascadeFieldOrder[sBoName]) || [];
+                    var aChains = aCascadeOrder._chains || [aCascadeOrder.slice()];
+                    var bHasCascadeChain = aChains.some(function (aChain) { return aChain.length > 1; });
+
+                    // Only skip cascade resolution if expanded fields exist AND no cascade chain is present
+                    var bHasExpandedFields = !bHasCascadeChain && Object.keys(oBoControls).some(function (sFieldKey) {
                         var oField = aAllFormFields.find(function (f) {
                             return (f.fieldName || f.name) === sFieldKey && f._businessObjectName;
                         });
                         return !!oField;
                     });
                     if (bHasExpandedFields) {
-                        return; // Skip BO cascade resolution for expanded BO fields
+                        return; // Skip BO cascade resolution for independent expanded BO fields
                     }
 
                     // Filter rows by all current cascade Select values
