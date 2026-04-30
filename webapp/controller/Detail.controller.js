@@ -1758,18 +1758,8 @@ sap.ui.define([
                             oRecord = response[0];
                         }
                         // Apply saved values to BO-scoped Select fields (after _populateFormFields which skips them)
+                        // This function now aggressively clears Select fields when parent field is null
                         self._applyBoScopedFieldValues(oRecord);
-                        
-                        // Re-populate linked field cascades after fresh read to ensure old values don't persist
-                        if (self._linkedDataByBO) {
-                            Object.keys(self._linkedDataByBO).forEach(function (sBusinessObjectName) {
-                                var oLinkedData = self._linkedDataByBO[sBusinessObjectName];
-                                if (oLinkedData && oLinkedData.rows && oLinkedData.rows.length > 0) {
-                                    // Re-populate the cascade chain with fresh link value from API response
-                                    self._populateLinkedFields(oLinkedData, sBusinessObjectName);
-                                }
-                            });
-                        }
                         
                         // Resolve display text for fields with nestedField.lookupListId
                         self._resolveNestedLookupFields(oRecord, sResolvedHash);
@@ -3001,6 +2991,8 @@ sap.ui.define([
         /**
          * Apply saved values to BO-scoped Select fields.
          * Called after _populateFormFields to override the default selections made by _populateLinkedFields.
+         * Updates _linkedFieldMatchInfo with fresh linkValues from the API response, then re-calls
+         * _populateLinkedFields so the cascade dropdowns reflect the current saved state.
          */
         _applyBoScopedFieldValues: function (oRecord) {
             if (!oRecord || !this._boScopedControlMap) {
@@ -3011,73 +3003,40 @@ sap.ui.define([
             Object.keys(this._boScopedControlMap).forEach(function (sBusinessObjectName) {
                 var oBoControls = self._boScopedControlMap[sBusinessObjectName];
                 if (!oBoControls) { return; }
-                
-                // Update the linkValue in _linkedFieldMatchInfo with the fresh read value
-                // This ensures _populateLinkedFields doesn't override with stale cached value
-                if (self._boParentFieldMap && self._boParentFieldMap[sBusinessObjectName]) {
-                    var oMapping = self._boParentFieldMap[sBusinessObjectName];
-                    var sParentFieldName = oMapping.parentFieldName;
-                    var sFilterField = oMapping.filterField;
-                    var vFreshLinkValue = oRecord[sParentFieldName];
-                    
-                    if (!self._linkedFieldMatchInfo) {
-                        self._linkedFieldMatchInfo = {};
-                    }
-                    if (!self._linkedFieldMatchInfo[sBusinessObjectName]) {
-                        self._linkedFieldMatchInfo[sBusinessObjectName] = {};
-                    }
-                    
-                    // Update with fresh link value from current read
-                    self._linkedFieldMatchInfo[sBusinessObjectName].filterField = sFilterField;
-                    self._linkedFieldMatchInfo[sBusinessObjectName].linkValue = vFreshLinkValue !== undefined ? vFreshLinkValue : null;
-                    
-                    console.log("[_applyBoScopedFieldValues] Updated _linkedFieldMatchInfo for", sBusinessObjectName, 
-                        "linkValue:", self._linkedFieldMatchInfo[sBusinessObjectName].linkValue);
+
+                if (!self._boParentFieldMap || !self._boParentFieldMap[sBusinessObjectName]) {
+                    return;
                 }
 
-                Object.keys(oBoControls).forEach(function (sFieldKey) {
-                    var oControl = oBoControls[sFieldKey];
-                    var vValue = oRecord[sFieldKey];
-                    
-                    console.log("[_applyBoScopedFieldValues] Processing BO field:", sFieldKey, "sBoName:", sBusinessObjectName, "vValue from record:", vValue, "control type:", oControl.getMetadata().getName());
-                    
-                    // For expanded BO fields, try mapping back to original API field name
-                    if (!vValue && self._expandedFieldToApiFieldMap && self._expandedFieldToApiFieldMap[sFieldKey]) {
-                        var sApiFieldName = self._expandedFieldToApiFieldMap[sFieldKey];
-                        vValue = oRecord[sApiFieldName];
-                        console.log("[_applyBoScopedFieldValues] Mapped expanded field", sFieldKey, "to API field", sApiFieldName, "vValue:", vValue);
-                    }
+                var oMapping = self._boParentFieldMap[sBusinessObjectName];
+                var sParentFieldName = oMapping.parentFieldName;
+                var sFilterField = oMapping.filterField;
+                var vFreshLinkValue = oRecord[sParentFieldName];
 
-                    if (!oControl || !oControl.isA("sap.m.Select")) {
-                        console.log("[_applyBoScopedFieldValues] Skipping non-Select control for", sFieldKey);
-                        return;
-                    }
+                console.log("[_applyBoScopedFieldValues] BO:", sBusinessObjectName, "parentField:", sParentFieldName, "freshLinkValue:", vFreshLinkValue);
 
-                    // Handle empty/null values explicitly
-                    if (vValue === undefined || vValue === null || vValue === "") {
-                        // No saved value — set to empty
-                        self._applyComboBoxValue(oControl, sFieldKey, "");
-                        return;
-                    }
+                // Update _linkedFieldMatchInfo with fresh data from API response
+                self._linkedFieldMatchInfo = self._linkedFieldMatchInfo || {};
+                self._linkedFieldMatchInfo[sBusinessObjectName] = {
+                    filterField: sFilterField,
+                    linkValue: (vFreshLinkValue !== undefined && vFreshLinkValue !== null) ? vFreshLinkValue : null
+                };
 
-                    // Convert nested objects (e.g. {id: 123, value: "..."}) to simple string
-                    var sValueStr;
-                    if (vValue && typeof vValue === "object" && !Array.isArray(vValue)) {
-                        var vId = (vValue.LI_ID !== undefined && vValue.LI_ID !== null) ? vValue.LI_ID
-                            : (vValue.id !== undefined && vValue.id !== null ? vValue.id : null);
-                        var vTxt = (vValue.Value !== undefined && vValue.Value !== null) ? vValue.Value : null;
-                        sValueStr = vId !== null ? String(vId).trim() : (vTxt !== null ? String(vTxt).trim() : "");
-                    } else {
-                        sValueStr = String(vValue).trim();
-                    }
-
-                    // Apply the saved value using _applyComboBoxValue which has better matching logic
-                    if (sValueStr !== "") {
-                        self._applyComboBoxValue(oControl, sFieldKey, sValueStr);
-                    } else {
-                        self._applyComboBoxValue(oControl, sFieldKey, "");
-                    }
-                });
+                // Re-call _populateLinkedFields so cascade dropdowns reflect the new saved state.
+                // This correctly handles both: selecting the matching row (non-null) or clearing (null).
+                var aRows = self._linkedDataByBO && self._linkedDataByBO[sBusinessObjectName];
+                if (aRows && aRows.length > 0) {
+                    self._populateLinkedFields({ _rePopulate: true }, sBusinessObjectName);
+                } else if (!vFreshLinkValue) {
+                    // No linked data loaded yet, but parent is null — directly clear all Select controls
+                    Object.keys(oBoControls).forEach(function (sFieldKey) {
+                        var oControl = oBoControls[sFieldKey];
+                        if (oControl && oControl.isA("sap.m.Select")) {
+                            oControl.clearSelection();
+                            oControl.setSelectedKey("");
+                        }
+                    });
+                }
             });
         },
 
