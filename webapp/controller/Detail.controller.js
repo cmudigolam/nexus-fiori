@@ -692,6 +692,15 @@ sap.ui.define([
                 });
             });
         },
+        // Backend may omit formOrder when its value is 0 (default-value omission in JSON
+        // serializer), so a missing/null/empty/NaN value is treated as 0 ("first") rather
+        // than dropping the field to the bottom of its category.
+        _getFormOrderValue: function (oField) {
+            var v = oField && oField.formOrder;
+            if (v === undefined || v === null || v === "") { return 0; }
+            var n = parseInt(v, 10);
+            return Number.isNaN(n) ? 0 : n;
+        },
         buildFormContent: function (oFormData, oCategorizedFields) {
             var oTabBar = this._oFormDialog.getContent()[0];
             oTabBar.destroyItems();
@@ -719,8 +728,8 @@ sap.ui.define([
                     if (!oField || (oField.gridVisible !== true && oField.formVisible !== true)) {
                         return;
                     }
-                    var iOrder = parseInt(oField.formOrder, 10);
-                    if (!Number.isNaN(iOrder) && iOrder < oCategoryMinOrder[oCategory.name]) {
+                    var iOrder = self._getFormOrderValue(oField);
+                    if (iOrder < oCategoryMinOrder[oCategory.name]) {
                         oCategoryMinOrder[oCategory.name] = iOrder;
                     }
                 });
@@ -747,9 +756,7 @@ sap.ui.define([
                 if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
                     // Sort fields by formOrder before processing
                     var aSortedFields = oCategorizedFields[oCategory.name].slice().sort(function (a, b) {
-                        var aOrder = a.formOrder !== undefined ? parseInt(a.formOrder) : 999999;
-                        var bOrder = b.formOrder !== undefined ? parseInt(b.formOrder) : 999999;
-                        return aOrder - bOrder;
+                        return self._getFormOrderValue(a) - self._getFormOrderValue(b);
                     });
 
                     // Group fields: BO fields together, non-BO fields separate
