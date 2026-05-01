@@ -1427,7 +1427,6 @@ sap.ui.define([
                     }
                 });
             });
-
             // Resolve fields backed by nestedField.foreignTableId + nestedField.nestedField.businessObjectName
             // Calls /bo/{businessObjectName}/{value} and displays the nestedField.nestedField.fieldName value
             if (this._nestedForeignKeyFieldMap) {
@@ -1470,7 +1469,6 @@ sap.ui.define([
             var oLocalDataModel = this.getLocalDataModel();
             var sHash = oLocalDataModel.getProperty("/HashToken");
             var self = this;
-
             var fnFetch = function (sResolvedHash) {
                 $.ajax({
                     "url": self.isRunninglocally() + "/boByKey/" + encodeURIComponent(sSubTableId),
@@ -1533,7 +1531,6 @@ sap.ui.define([
                                 })
                             ]
                         }));
-
                         // Pre-load lookup items for every dropdown column so editable cells
                         // can be populated before rows are rendered.
                         var aDropdownFields = aVisibleFields.filter(function (oColField) {
@@ -1541,7 +1538,6 @@ sap.ui.define([
                         });
                         var oSubTableLookups = {};
                         oTable.data("subTableLookups", oSubTableLookups);
-
                         var fnProceedWithData = function () {
                             if (sCategoryName) {
                                 self._loadSubTableData(oTable, sCategoryName, aVisibleFields, sResolvedHash, oSubTableLookups);
@@ -1556,7 +1552,6 @@ sap.ui.define([
                             fnProceedWithData();
                             return;
                         }
-
                         var iRemainingLookups = aDropdownFields.length;
                         aDropdownFields.forEach(function (oColField) {
                             var sFieldKey = oColField.fieldName || oColField.name;
@@ -1600,12 +1595,10 @@ sap.ui.define([
                     }
                 });
             };
-
             if (sHash) {
                 fnFetch(sHash);
                 return;
             }
-
             this.getoHashToken().done(function (oResult) {
                 var sFetchedHash = oResult && oResult.hash;
                 if (sFetchedHash) {
@@ -1625,7 +1618,6 @@ sap.ui.define([
             if (!sComponentId || !sCategoryName) {
                 return;
             }
-
             $.ajax({
                 "url": self.isRunninglocally() + "/bo/" + encodeURIComponent(sCategoryName) + "/",
                 "method": "GET",
