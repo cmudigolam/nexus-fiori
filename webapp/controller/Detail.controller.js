@@ -813,7 +813,9 @@ sap.ui.define([
                         }
 
                         // Determine visibility based on formVisible property from API metadata
-                        var bVisible = oField.formVisible !== false;
+                        // Also hide the field if its nestedField has formVisible === false
+                        var bVisible = oField.formVisible !== false &&
+                            !(oField.nestedField && oField.nestedField.formVisible === false);
 
                         // Sub-table fields are rendered above the form, not inside it
                         if (oField.subTableId) {
@@ -1480,9 +1482,21 @@ sap.ui.define([
                     "success": function (response) {
                         var aFields = Array.isArray(response && response.fields) ? response.fields : [];
                         // Only include fields where gridVisible is not explicitly false
+                        // and where the nestedField (if present) does not have formVisible === false
                         var aVisibleFields = aFields.filter(function (oColField) {
-                            return oColField.gridVisible !== false;
+                            if (oColField.gridVisible === false) { return false; }
+                            if (oColField.nestedField && oColField.nestedField.formVisible === false) { return false; }
+                            return true;
                         });
+                        // Sort columns by gridOrder if present
+                        var bHasGridOrder = aVisibleFields.some(function (oColField) {
+                            return oColField.gridOrder !== undefined && oColField.gridOrder !== null;
+                        });
+                        if (bHasGridOrder) {
+                            aVisibleFields.sort(function (a, b) {
+                                return (a.gridOrder || 0) - (b.gridOrder || 0);
+                            });
+                        }
                         aVisibleFields.forEach(function (oColField) {
                             var sColName = oColField.name || oColField.fieldName || "";
                             oTable.addColumn(new sap.m.Column({
