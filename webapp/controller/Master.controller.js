@@ -234,7 +234,7 @@ sap.ui.define([
                 aDisplayRows.forEach(function (oRow) {
                     var sName = String(fnUnwrap(oRow.Name) !== null && fnUnwrap(oRow.Name) !== undefined ? fnUnwrap(oRow.Name) : "");
                     var vColour = fnUnwrap(oRow.Colour);
-                    // Skip only if Colour is null/undefined/empty - don't skip if hex conversion fails
+                    // Skip only if Colour is null/undefined/empty - don't skip if hex conversion fails.  
                     if (vColour === null || vColour === undefined || vColour === "") {
                         return;
                     }

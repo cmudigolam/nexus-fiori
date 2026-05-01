@@ -82,7 +82,7 @@ sap.ui.define([
                             : (Array.isArray(response) ? response : []);
                     },
                     "error": function () {
-                        console.warn("Failed to load Unit data");
+                        MessageBox.error("Failed to load Unit data");
                     }
                 });
 
@@ -97,7 +97,7 @@ sap.ui.define([
                             : (Array.isArray(response) ? response : []);
                     },
                     "error": function () {
-                        console.warn("Failed to load Unit_Type data");
+                        MessageBox.error("Failed to load Unit_Type data");
                     }
                 });
             };
@@ -499,6 +499,7 @@ sap.ui.define([
             self._cascadeFieldOrder = {};
             self._colourInputMap = {};
             self._colourValueMap = {};
+            self._skipColorFields = {};
             self._unitLinkMap = {};
             self._unitFieldInfo = {};
             self._categoryTabMap = {};
@@ -898,6 +899,12 @@ sap.ui.define([
                             if (/colour/i.test(oField.name || oField.fieldName || "")) {
                                 self._colourInputMap[sFieldKey] = oInput;
                             }
+                            // Fields that store numeric IDs or calculated numbers must
+                            // never be treated as TColor codes during population
+                            if (Number(oField.fieldTypeId) === 40 || Number(oField.fieldTypeId) === 18) {
+                                self._skipColorFields = self._skipColorFields || {};
+                                self._skipColorFields[sFieldKey] = true;
+                            }
                         }
 
                         // Attach live-change handler to clear mandatory error state as soon as user enters a value
@@ -1291,8 +1298,7 @@ sap.ui.define([
                     "method": "GET",
                     "dataType": "json",
                     "headers": {
-                        "X-NEXUS-Filter": JSON.stringify({ "where": [{ "field": "LL_ID", "method": "eq", "value": sLookupListId }] }),
-                        "X-NEXUS-Sort": JSON.stringify([{ "field": "Value", "ascending": true }])
+                        "X-NEXUS-Filter": JSON.stringify({ "where": [{ "field": "LL_ID", "method": "eq", "value": sLookupListId }] })
                     },
                     "data": {
                         "hash": sResolvedHash,
@@ -1300,12 +1306,15 @@ sap.ui.define([
                     },
                     "success": function (response) {
                         var aItems = Array.isArray(response && response.rows) ? response.rows : [];
-                        // Sort alphabetically by display text (case-insensitive) client-side
-                        aItems.sort(function (a, b) {
-                            var sA = String(a.Comments || a.Value || "").toLowerCase();
-                            var sB = String(b.Comments || b.Value || "").toLowerCase();
-                            return sA < sB ? -1 : sA > sB ? 1 : 0;
+                        // Sort by Item_Order if present, otherwise preserve server order
+                        var bHasItemOrder = aItems.some(function (oItem) {
+                            return oItem.Item_Order !== undefined && oItem.Item_Order !== null;
                         });
+                        if (bHasItemOrder) {
+                            aItems.sort(function (a, b) {
+                                return (a.Item_Order || 0) - (b.Item_Order || 0);
+                            });
+                        }
                         oSelect.removeAllItems();
                         // Add empty option as first item so users can clear the selection
                         oSelect.addItem(new Item({ key: "", text: "" }));
@@ -1372,14 +1381,22 @@ sap.ui.define([
                 if (vFieldValue === undefined || vFieldValue === null || vFieldValue === "") {
                     return;
                 }
+                // Extract LI_ID in case the API returned an expanded object
+                var vLiId = (vFieldValue !== null && typeof vFieldValue === "object")
+                    ? (vFieldValue.LI_ID !== undefined ? vFieldValue.LI_ID : vFieldValue)
+                    : vFieldValue;
+                var sLookupListId = self._nestedLookupFieldMap[sFieldKey];
+                // Filter by both LL_ID (list scope) and LI_ID (item ID) for accurate resolution
+                var aWhere = [{ "field": "LI_ID", "method": "eq", "value": vLiId }];
+                if (sLookupListId !== undefined && sLookupListId !== null) {
+                    aWhere.unshift({ "field": "LL_ID", "method": "eq", "value": sLookupListId });
+                }
                 $.ajax({
                     "url": self.isRunninglocally() + "/bo/Lookup_Item/",
                     "method": "GET",
                     "dataType": "json",
                     "headers": {
-                        "X-NEXUS-Filter": JSON.stringify({
-                            "where": [{ "field": "LI_ID", "method": "eq", "value": vFieldValue }]
-                        })
+                        "X-NEXUS-Filter": JSON.stringify({ "where": aWhere })
                     },
                     "data": {
                         "hash": sHash
@@ -1392,18 +1409,18 @@ sap.ui.define([
                             return;
                         }
                         if (aRows.length > 0) {
-                            var sDisplayValue = String(aRows[0].Value || aRows[0].Name || vFieldValue);
+                            var sDisplayValue = String(aRows[0].Comments || aRows[0].Value || aRows[0].Name || vLiId);
                             oControl.setValue(sDisplayValue);
                         } else {
                             // Fallback: show raw value when no matching lookup item found
-                            oControl.setValue(String(vFieldValue));
+                            oControl.setValue(String(vLiId));
                         }
                     },
                     "error": function () {
                         // Silent fallback – display raw stored value
                         var oControl = self._fieldControlMap && self._fieldControlMap[sFieldKey];
                         if (oControl && oControl.isA("sap.m.Input")) {
-                            oControl.setValue(String(vFieldValue));
+                            oControl.setValue(String(vLiId));
                         }
                     }
                 });
@@ -1479,7 +1496,8 @@ sap.ui.define([
                         // Use the field's own fieldName from the parent form as the category name.
                         // response.name is a display name (may have spaces) and should not be used
                         // as the /bo/ API path segment.
-                        var sCategoryName = response.tableName || "";
+                        // boByKey returns businessObjectName (not tableName) as the BO API path segment.
+                        var sCategoryName = response.tableName || response.businessObjectName || "";
                         oTable.data("subTableName", sCategoryName);
 
                         // Enable row selection for delete operations
@@ -1533,12 +1551,21 @@ sap.ui.define([
                                 "method": "GET",
                                 "dataType": "json",
                                 "headers": {
-                                    "X-NEXUS-Filter": JSON.stringify({ "where": [{ "field": "LL_ID", "method": "eq", "value": oColField.lookupListId }] }),
-                                    "X-NEXUS-Sort": JSON.stringify([{ "field": "Value", "ascending": true }])
+                                    "X-NEXUS-Filter": JSON.stringify({ "where": [{ "field": "LL_ID", "method": "eq", "value": oColField.lookupListId }] })
                                 },
                                 "data": { "hash": sResolvedHash },
                                 "success": function (resp) {
-                                    oSubTableLookups[sFieldKey] = Array.isArray(resp && resp.rows) ? resp.rows : [];
+                                    var aLookupItems = Array.isArray(resp && resp.rows) ? resp.rows : [];
+                                    // Sort by Item_Order if present, otherwise preserve server order
+                                    var bHasItemOrder = aLookupItems.some(function (oItem) {
+                                        return oItem.Item_Order !== undefined && oItem.Item_Order !== null;
+                                    });
+                                    if (bHasItemOrder) {
+                                        aLookupItems.sort(function (a, b) {
+                                            return (a.Item_Order || 0) - (b.Item_Order || 0);
+                                        });
+                                    }
+                                    oSubTableLookups[sFieldKey] = aLookupItems;
                                     iRemainingLookups--;
                                     if (iRemainingLookups === 0) { fnProceedWithData(); }
                                 },
@@ -1639,12 +1666,16 @@ sap.ui.define([
                 var oSelect = new sap.m.Select({ width: "100%", autoAdjustWidth: false });
                 // Add a blank first item so nothing is pre-selected when value is absent
                 oSelect.addItem(new sap.ui.core.Item({ key: "", text: "" }));
-                // Sort alphabetically by display text before rendering
-                var aSortedLookupItems = aLookupItems.slice().sort(function (a, b) {
-                    var sA = String(a.Comments || a.Value || a.Name || "").toLowerCase();
-                    var sB = String(b.Comments || b.Value || b.Name || "").toLowerCase();
-                    return sA < sB ? -1 : sA > sB ? 1 : 0;
+                // Sort by Item_Order if present, otherwise preserve server order
+                var bHasItemOrder = aLookupItems.some(function (oItem) {
+                    return oItem.Item_Order !== undefined && oItem.Item_Order !== null;
                 });
+                var aSortedLookupItems = aLookupItems.slice();
+                if (bHasItemOrder) {
+                    aSortedLookupItems.sort(function (a, b) {
+                        return (a.Item_Order || 0) - (b.Item_Order || 0);
+                    });
+                }
                 aSortedLookupItems.forEach(function (oLookupItem) {
                     // Key = LI_ID (raw integer stored in data); Text = Comments (display label)
                     var sKey = String(oLookupItem.LI_ID || oLookupItem.Value || "");
@@ -1831,7 +1862,7 @@ sap.ui.define([
                 "data": JSON.stringify(oRecord),
                 "success": function (response) {
                     // Update field visibility based on validation response
-                    self._updateFieldVisibilityFromValidation(response);
+                    self._updateFieldVisibilityFromValidation(response, sHash);
                     // Hide busy indicator on dialog
                     if (self._oFormDialog) {
                         self._oFormDialog.setBusy(false);
@@ -1849,7 +1880,7 @@ sap.ui.define([
                 }
             });
         },
-        _updateFieldVisibilityFromValidation: function (oValidationResponse) {
+        _updateFieldVisibilityFromValidation: function (oValidationResponse, sResolvedHash) {
             if (!oValidationResponse || !this._fieldControlMap) {
                 return;
             }
@@ -1995,7 +2026,47 @@ sap.ui.define([
                     var oControl = self._fieldControlMap[sFieldKey];
                     if (!oControl) { return; }
                     var vValue = oUpdatedValues[sFieldKey];
-                    
+
+                    // Fields in _nestedLookupFieldMap store a raw LI_ID — re-resolve to
+                    // display text instead of blindly setting the raw integer.
+                    if (self._nestedLookupFieldMap && self._nestedLookupFieldMap.hasOwnProperty(sFieldKey)) {
+                        if (vValue !== undefined && vValue !== null && vValue !== "") {
+                            var vLiId = (vValue !== null && typeof vValue === "object")
+                                ? (vValue.LI_ID !== undefined ? vValue.LI_ID : vValue)
+                                : vValue;
+                            var sLlId = self._nestedLookupFieldMap[sFieldKey];
+                            var aWhere = [{ "field": "LI_ID", "method": "eq", "value": vLiId }];
+                            if (sLlId !== undefined && sLlId !== null) {
+                                aWhere.unshift({ "field": "LL_ID", "method": "eq", "value": sLlId });
+                            }
+                            var sHashForLookup = sResolvedHash || self.getLocalDataModel().getProperty("/HashToken");
+                            (function (oCtrl, vRawId) {
+                                $.ajax({
+                                    "url": self.isRunninglocally() + "/bo/Lookup_Item/",
+                                    "method": "GET",
+                                    "dataType": "json",
+                                    "headers": { "X-NEXUS-Filter": JSON.stringify({ "where": aWhere }) },
+                                    "data": { "hash": sHashForLookup },
+                                    "success": function (resp) {
+                                        var aRows = Array.isArray(resp && resp.rows) ? resp.rows
+                                            : Array.isArray(resp) ? resp : [];
+                                        if (oCtrl.isA && oCtrl.isA("sap.m.Input")) {
+                                            oCtrl.setValue(aRows.length > 0
+                                                ? String(aRows[0].Comments || aRows[0].Value || aRows[0].Name || vRawId)
+                                                : String(vRawId));
+                                        }
+                                    },
+                                    "error": function () {
+                                        if (oCtrl.isA && oCtrl.isA("sap.m.Input")) { oCtrl.setValue(String(vRawId)); }
+                                    }
+                                });
+                            }(oControl, vLiId));
+                        } else {
+                            if (oControl.isA && oControl.isA("sap.m.Input")) { oControl.setValue(""); }
+                        }
+                        return;
+                    }
+
                     if (oControl.isA && oControl.isA("sap.m.Select")) {
                         oControl.setSelectedKey(vValue !== undefined && vValue !== null ? String(vValue) : "");
                     } else if (oControl.isA && oControl.isA("sap.m.ComboBox")) {
@@ -2742,25 +2813,20 @@ sap.ui.define([
             var oMatchInfo = this._linkedFieldMatchInfo && this._linkedFieldMatchInfo[sBusinessObjectName];
             var oMatchedRow = null;
             var bLinkValueIsNull = false; // Track if linkValue is explicitly null (cleared)
-            console.log("[_populateLinkedFields] BO:", sBusinessObjectName, "oMatchInfo:", JSON.stringify(oMatchInfo), "totalRows:", aRows.length);
             if (oMatchInfo && oMatchInfo.filterField) {
                 if (oMatchInfo.linkValue === null) {
                     // linkValue is explicitly null — no matching row, field should remain empty
                     bLinkValueIsNull = true;
-                    console.log("[_populateLinkedFields] linkValue is null — will clear all fields");
                 } else if (oMatchInfo.linkValue !== undefined) {
                     oMatchedRow = aRows.find(function (oRow) {
                         return String(oRow[oMatchInfo.filterField]) === String(oMatchInfo.linkValue);
                     });
-                    console.log("[_populateLinkedFields] Searching for linkValue:", oMatchInfo.linkValue, "in field:", oMatchInfo.filterField, "→ matched row:", oMatchedRow ? JSON.stringify(oMatchedRow) : "NOT FOUND");
                 }
             }
             
             // Only use first row if linkValue was found or is undefined (initial load)
             // If linkValue is explicitly null (cleared), don't pre-populate
             var oFirstRow = bLinkValueIsNull ? null : (oMatchedRow || aRows[0]);
-            console.log("[_populateLinkedFields] oFirstRow:", oFirstRow ? JSON.stringify(oFirstRow) : "null", "bLinkValueIsNull:", bLinkValueIsNull);
-            
             for (var i = 0; i < aCascadeOrder.length; i++) {
                 var sField = aCascadeOrder[i];
                 var oControl = oBoControls[sField];
@@ -3041,8 +3107,6 @@ sap.ui.define([
                 var sFilterField = oMapping.filterField;
                 var vFreshLinkValue = oRecord[sParentFieldName];
 
-                console.log("[_applyBoScopedFieldValues] BO:", sBusinessObjectName, "parentField:", sParentFieldName, "freshLinkValue:", vFreshLinkValue);
-
                 // Update _linkedFieldMatchInfo with fresh data from API response
                 self._linkedFieldMatchInfo = self._linkedFieldMatchInfo || {};
                 self._linkedFieldMatchInfo[sBusinessObjectName] = {
@@ -3081,22 +3145,17 @@ sap.ui.define([
                 oRecord = oData[0];
             }
             
-            console.log("[_populateFormFields] oRecord keys:", Object.keys(oRecord), "oRecord:", oRecord);
-            
             // Initialize pending ComboBox values
             if (!this._pendingComboBoxValues) {
                 this._pendingComboBoxValues = {};
             }
 
             var self = this;
-            console.log("[_populateFormFields] _fieldControlMap keys:", Object.keys(this._fieldControlMap));
-            console.log("[_populateFormFields] _fieldBusinessObjectMap:", this._fieldBusinessObjectMap);
             Object.keys(this._fieldControlMap).forEach(function (sFieldKey) {
                 var oControl = self._fieldControlMap[sFieldKey];
                 
                 // Skip if control doesn't exist or is not a UI5 control
                 if (!oControl || typeof oControl !== "object" || !oControl.isA || typeof oControl.isA !== "function") {
-                    console.warn("[_populateFormFields] Skipping invalid control for field:", sFieldKey, "control:", oControl);
                     return;
                 }
 
@@ -3112,20 +3171,18 @@ sap.ui.define([
                     }
                     // For non-Select BO fields (expanded Input, TextArea, DatePicker, etc.), continue and populate with record value
                 }
-
                 var vValue = oRecord[sFieldKey];
-                
                 // For expanded BO fields, try mapping back to original API field name
                 if (!vValue && self._expandedFieldToApiFieldMap && self._expandedFieldToApiFieldMap[sFieldKey]) {
                     var sApiFieldName = self._expandedFieldToApiFieldMap[sFieldKey];
                     vValue = oRecord[sApiFieldName];
-                    console.log("[_populateFormFields] Mapped expanded field", sFieldKey, "to API field", sApiFieldName, "vValue:", vValue);
                 }
-                
-                console.log("[_populateFormFields] sFieldKey:", sFieldKey, "vValue:", vValue, "sBoName:", sBoName);
-
                 if (vValue === undefined || vValue === null) {
                     // Explicitly clear the control when no value is saved
+                    // Sub-table controls are populated by _loadSubTableData — never clear them here
+                    if (oControl.isA && oControl.isA("sap.m.Table")) {
+                        return;
+                    }
                     if (oControl.setValue) {
                         oControl.setValue("");
                     } else if (oControl.setDateValue) {
@@ -3231,7 +3288,8 @@ sap.ui.define([
                             }
                         }
                     } else if (oControl.isA("sap.m.Input") &&
-                               !(self._unitFieldInfo && self._unitFieldInfo[sFieldKey])) {
+                               !(self._unitFieldInfo && self._unitFieldInfo[sFieldKey]) &&
+                               !(self._skipColorFields && self._skipColorFields[sFieldKey])) {
                         // Detect pure positive integer values as TColor (e.g. Risk_Status colour codes)
                         var vRaw = vValue;
                         var bIsColorInt = (typeof vRaw === "number" && Number.isInteger(vRaw) && vRaw > 0) ||
@@ -3496,19 +3554,19 @@ sap.ui.define([
 
             // Special handling for empty value — explicitly clear selection
             if (sNormalizedValue === "") {
-                console.log("[_applyComboBoxValue] Clearing Select for field:", sFieldKey);
+                
                 // First try to find and select an empty item
                 for (var i = 0; i < aItems.length; i++) {
                     if (aItems[i].getKey() === "" || aItems[i].getText() === "") {
                         oSelect.setSelectedKey("");
-                        console.log("[_applyComboBoxValue] Found empty item, set selected key to empty");
+                        
                         return;
                     }
                 }
                 // No empty item exists — force clear by setting selectedKey to empty
                 oSelect.setSelectedKey("");
                 oSelect.clearSelection();
-                console.log("[_applyComboBoxValue] No empty item found, forcefully cleared selection");
+                
                 return;
             }
 
