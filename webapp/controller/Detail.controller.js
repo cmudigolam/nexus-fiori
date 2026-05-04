@@ -459,6 +459,19 @@ sap.ui.define([
             var aCategoryOrder = [];
             var oCategorySet = {};
 
+             // Two-pass build: register category order using only visible fields so that
+            // hidden system fields (Component_ID, Link_ID, Guid, etc.) — which have no
+            // `category` and would otherwise force the default tile category to be added
+            // first — don't pollute the originalIndex tiebreaker used during category sort.
+            aFields.forEach(function (oField) {
+                if (oField.gridVisible !== true && oField.formVisible !== true) { return; }
+                var sCat = oField.category || sDefaultCategory;
+                if (!oCategorySet[sCat]) {
+                    oCategorySet[sCat] = true;
+                    aCategoryOrder.push(sCat);
+                    oCategorizedFields[sCat] = [];
+                }
+            });
             aFields.forEach(function (oField) {
                 var sCat = oField.category || sDefaultCategory;
                 if (!oCategorySet[sCat]) {
@@ -469,7 +482,16 @@ sap.ui.define([
                 oCategorizedFields[sCat].push(oField);
             });
 
-            oFormData.categories = aCategoryOrder.map(function (sName) { return { name: sName }; });
+            var oOriginalCategoryMeta = {};
+            (Array.isArray(oFormData && oFormData.categories) ? oFormData.categories : []).forEach(function (oCat) {
+                if (oCat && oCat.name) {
+                    oOriginalCategoryMeta[oCat.name] = oCat;
+                }
+            });
+            oFormData.categories = aCategoryOrder.map(function (sName) {
+                var oMeta = oOriginalCategoryMeta[sName];
+                return oMeta ? Object.assign({}, oMeta, { name: sName }) : { name: sName };
+            });
             var self = this;
             // Create dialog content model with tile title as dialog title
             var oDialogModel = {
@@ -1105,7 +1127,7 @@ sap.ui.define([
                         text: oCategory.comments,
                         wrapping: true
                     });
-                    oCommentText.addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginTop");
+                    oCommentText.addStyleClass("sapUiSmallMarginBegin sapUiSmallMarginEnd sapUiSmallMarginTop sapUiSmallMarginBottom");
                     aScrollContent.push(oCommentText);
                 }
                 // Sub-tables appear above the form fields
@@ -1149,7 +1171,7 @@ sap.ui.define([
                     growingScrollToLoad: true,
                     noDataText: "No data",
                     autoPopinMode: false,
-                    fixedLayout: false
+                    fixedLayout: true
                 });
                 this._loadSubTableColumns(oTable, oField.subTableId, oField.category);
                 return oTable;
@@ -1167,7 +1189,7 @@ sap.ui.define([
             switch (oField.fieldTypeId) {
                 case 9: // Date field
                     var oDatePicker = new sap.m.DatePicker({
-                        displayFormat: "dd MMM yyyy",
+                        displayFormat: "dd/MM/yyyy",
                         showWeekNumbers: false,
                         placeholder: oField.blankText || ""
                     });
@@ -1245,12 +1267,37 @@ sap.ui.define([
                         });
                     }
                     if (Number(oField.editorTypeId) === 11) {
-                        // editorTypeId 11 = calculated numeric field — display only
-                        return new sap.m.Input({
-                            type: "Number",
-                            enabled: false,
-                            placeholder: oField.blankText || ""
-                        });
+                        // Pick the read-only control that matches the underlying display type
+                        switch (Number(oField.displayFieldTypeId)) {
+                            case 9: // Date
+                                var oCalcDatePicker = new sap.m.DatePicker({
+                                    displayFormat: "dd/MM/yyyy",
+                                    showWeekNumbers: false,
+                                    enabled: false,
+                                    placeholder: oField.blankText || ""
+                                });
+                                this._makeDatePickerOnly(oCalcDatePicker);
+                                return oCalcDatePicker;
+                            case 5: // Boolean — display as Yes/No text (matches legacy IC Web)
+                                var oCalcBoolInput = new sap.m.Input({
+                                    enabled: false,
+                                    placeholder: oField.blankText || ""
+                                });
+                                oCalcBoolInput.data("calcBoolean", true);
+                                return oCalcBoolInput;
+                            case 1: // String — calculated text values (e.g. Traffic Light Status)
+                                return new sap.m.Input({
+                                    type: "Text",
+                                    enabled: false,
+                                    placeholder: oField.blankText || ""
+                                });
+                            default:
+                                return new sap.m.Input({
+                                    type: "Number",
+                                    enabled: false,
+                                    placeholder: oField.blankText || ""
+                                });
+                        }
                     }
                     return new sap.m.Input({
                         enabled: false,
@@ -1465,6 +1512,65 @@ sap.ui.define([
                 });
             }
         },
+        _getSubTableColumnWidth: function (oColField) {
+            // Type-based minimum so date/numeric inputs render comfortably
+            var iTypeMin;
+            if (oColField && oColField.lookupListId) {
+                iTypeMin = 12;
+            } else {
+                switch (Number(oColField && oColField.fieldTypeId)) {
+                    case 5:  iTypeMin = 7;  break; // Boolean
+                    case 9:  iTypeMin = 11; break; // Date
+                    case 10: iTypeMin = 10; break; // Time
+                    case 11: iTypeMin = 14; break; // DateTime
+                    case 3:
+                    case 6:  iTypeMin = 9;  break; // Integer / Numeric
+                    case 16: iTypeMin = 20; break; // Multi-line text
+                    case 18:
+                    case 37:
+                    case 42:
+                    case 57: iTypeMin = 12; break; // Lookups / sub-table refs
+                    default: iTypeMin = 12;        // Plain text
+                }
+            }
+            // Header-driven width: ensure the column is wide enough to show the
+            // full header text without truncation. ~0.62rem per char + buffer
+            // for cell padding, sort/filter icons.
+            var sHeader = ((oColField && (oColField.name || oColField.fieldName)) || "").toString();
+            var iHeaderRem = Math.ceil(sHeader.length * 0.62) + 3;
+            // Long-text heuristic: description/comment/notes-style fields commonly
+            // hold values much longer than their header, so reserve more space.
+            if (/description|comment|notes?|remark|details|summary|reason|justification/i.test(sHeader)) {
+                iTypeMin = Math.max(iTypeMin, 25);
+            }
+            var iWidth = Math.max(iTypeMin, iHeaderRem);
+            return iWidth + "rem";
+        },
+        _adjustSubTableColumnWidths: function (oTable, aVisibleFields, aRows) {
+            if (!oTable || !aVisibleFields || !aRows || !aRows.length) { return; }
+            var aColumns = oTable.getColumns();
+            // Cap so a single huge value doesn't blow out the layout
+            var iMaxRem = 40;
+            aVisibleFields.forEach(function (oColField, iColIdx) {
+                var oColumn = aColumns[iColIdx];
+                if (!oColumn) { return; }
+                var sFieldKey = oColField.fieldName || oColField.name;
+                var iMaxLen = 0;
+                aRows.forEach(function (oRow) {
+                    var v = oRow[sFieldKey];
+                    if (v !== null && v !== undefined && typeof v !== "object") {
+                        var iLen = String(v).length;
+                        if (iLen > iMaxLen) { iMaxLen = iLen; }
+                    }
+                });
+                if (iMaxLen === 0) { return; }
+                var iCurrentRem = parseFloat(oColumn.getWidth()) || 0;
+                var iContentRem = Math.min(iMaxRem, Math.ceil(iMaxLen * 0.62) + 3);
+                if (iContentRem > iCurrentRem) {
+                    oColumn.setWidth(iContentRem + "rem");
+                }
+            });
+        },
         _loadSubTableColumns: function (oTable, sSubTableId, sFieldName) {
             var oLocalDataModel = this.getLocalDataModel();
             var sHash = oLocalDataModel.getProperty("/HashToken");
@@ -1499,6 +1605,7 @@ sap.ui.define([
                             var sColName = oColField.name || oColField.fieldName || "";
                             oTable.addColumn(new sap.m.Column({
                                 demandPopin: false,
+                                width: self._getSubTableColumnWidth(oColField),
                                 header: new sap.m.Text({ text: sColName, wrapping: false })
                             }));
                         });
@@ -1658,6 +1765,7 @@ sap.ui.define([
                         oItem.data("rowData", oRow);
                         oTable.addItem(oItem);
                     });
+                    self._adjustSubTableColumnWidths(oTable, aVisibleFields, aRows);
                 },
                 "error": function () {
                     // Silent fail – table stays empty, main form load is unaffected
@@ -1698,7 +1806,7 @@ sap.ui.define([
                 (typeof vVal === "string" && /^\d{4}-\d{2}-\d{2}/.test(vVal));
 
             if (bIsDateField) {
-                var oDatePicker = new sap.m.DatePicker({ displayFormat: "dd MMM yyyy", showWeekNumbers: false });
+                var oDatePicker = new sap.m.DatePicker({ width: "100%", displayFormat: "dd/MM/yyyy", showWeekNumbers: false });
                 this._makeDatePickerOnly(oDatePicker);
                 if (vVal !== undefined && vVal !== null && vVal !== "") {
                     var oParsedDate = new Date(vVal);
@@ -1710,6 +1818,7 @@ sap.ui.define([
             }
 
             return new sap.m.Input({
+                width: "100%",
                 value: (vVal !== undefined && vVal !== null) ? String(vVal) : "",
                 type: oColField.fieldTypeId === 6 ? "Number" : "Text"
             });
@@ -2078,7 +2187,24 @@ sap.ui.define([
                     } else if (oControl.isA && oControl.isA("sap.m.ComboBox")) {
                         oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
                     } else if (oControl.isA && oControl.isA("sap.m.Input")) {
-                        oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                        if (oControl.data && oControl.data("calcBoolean")) {
+                            if (vValue === undefined || vValue === null || vValue === "") {
+                                oControl.setValue("");
+                            } else {
+                                var bBoolVal;
+                                if (typeof vValue === "boolean") {
+                                    bBoolVal = vValue;
+                                } else if (typeof vValue === "number") {
+                                    bBoolVal = vValue !== 0;
+                                } else {
+                                    var sLower = String(vValue).trim().toLowerCase();
+                                    bBoolVal = sLower === "true" || sLower === "yes" || sLower === "1";
+                                }
+                                oControl.setValue(bBoolVal ? "Yes" : "No");
+                            }
+                        } else {
+                            oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                        }
                     } else if (oControl.isA && oControl.isA("sap.m.TextArea")) {
                         oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
                     } else if (oControl.isA && oControl.isA("sap.m.CheckBox")) {
@@ -3231,11 +3357,25 @@ sap.ui.define([
 
                 if (oControl.isA("sap.m.Input") || oControl.isA("sap.m.TextArea")) {
                     var sDisplayValue = String(vValue);
+                    if (oControl.data && oControl.data("calcBoolean")) {
+                        var bBoolVal;
+                        if (typeof vValue === "boolean") {
+                            bBoolVal = vValue;
+                        } else if (typeof vValue === "number") {
+                            bBoolVal = vValue !== 0;
+                        } else {
+                            var sLower = String(vValue).trim().toLowerCase();
+                            bBoolVal = sLower === "true" || sLower === "yes" || sLower === "1";
+                        }
+                        oControl.setValue(bBoolVal ? "Yes" : "No");
+                        return;
+                    }
                     if (typeof vValue === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(vValue)) {
                         var oParsedDate = new Date(vValue);
                         if (!isNaN(oParsedDate.getTime())) {
-                            var aMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                            sDisplayValue = oParsedDate.getUTCDate() + " " + aMonths[oParsedDate.getUTCMonth()] + " " + oParsedDate.getUTCFullYear();
+                            var sDay = String(oParsedDate.getUTCDate()).padStart(2, "0");
+                            var sMonth = String(oParsedDate.getUTCMonth() + 1).padStart(2, "0");
+                            sDisplayValue = sDay + "/" + sMonth + "/" + oParsedDate.getUTCFullYear();
                         }
                     }
                     // Convert value to preferred unit if a preferred unit conversion exists,
@@ -3295,11 +3435,14 @@ sap.ui.define([
                         }
                     } else if (oControl.isA("sap.m.Input") &&
                                !(self._unitFieldInfo && self._unitFieldInfo[sFieldKey]) &&
-                               !(self._skipColorFields && self._skipColorFields[sFieldKey])) {
-                        // Detect pure positive integer values as TColor (e.g. Risk_Status colour codes)
+                               !(self._skipColorFields && self._skipColorFields[sFieldKey]) &&
+                               /status|colou?r/i.test(sFieldKey || "")) {
+                        // Detect pure positive integer values as TColor (e.g. Risk_Status colour codes).
+                        // Guarded by name pattern + 24-bit range so plain integer fields like
+                        // Valve_failure_threshold (e.g. 222222222) aren't misread as colour codes.
                         var vRaw = vValue;
-                        var bIsColorInt = (typeof vRaw === "number" && Number.isInteger(vRaw) && vRaw > 0) ||
-                            (typeof vRaw === "string" && /^\d+$/.test(vRaw.trim()) && parseInt(vRaw.trim(), 10) > 0);
+                        var bIsColorInt = (typeof vRaw === "number" && Number.isInteger(vRaw) && vRaw > 0 && vRaw <= 0xFFFFFF) ||
+                            (typeof vRaw === "string" && /^\d+$/.test(vRaw.trim()) && parseInt(vRaw.trim(), 10) > 0 && parseInt(vRaw.trim(), 10) <= 0xFFFFFF);
                         if (bIsColorInt) {
                             var nColorVal = (typeof vRaw === "number") ? vRaw : parseInt(String(vRaw).trim(), 10);
                             var sColorHex = self._tcolorToCssHex(nColorVal);

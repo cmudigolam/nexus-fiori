@@ -1,5 +1,5 @@
 <core:FragmentDefinition xmlns:core="sap.ui.core" xmlns="sap.m" xmlns:f="sap.ui.layout.form">
-    <Dialog id="idDynamicFormDialog" contentHeight="700px" contentWidth="900px" resizable="true" verticalScrolling="false" draggable="true">
+    <Dialog id="idDynamicFormDialog" contentHeight="700px" contentWidth="1200px" resizable="true" verticalScrolling="false" draggable="true">
         <customHeader>
             <Bar>
                 <contentLeft>
