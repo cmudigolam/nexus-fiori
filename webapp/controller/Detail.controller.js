@@ -924,7 +924,10 @@ sap.ui.define([
                                     container: oInput
                                 };
                             }
-                            if (/colour/i.test(oField.name || oField.fieldName || "")) {
+                            // Register as a colour field when either the metadata explicitly
+                            // marks it (editorTypeId 16) or the field name contains "colour".
+                            if (Number(oField.editorTypeId) === 16 ||
+                                /colour/i.test(oField.name || oField.fieldName || "")) {
                                 self._colourInputMap[sFieldKey] = oInput;
                             }
                             // Fields that store numeric IDs or calculated numbers must
