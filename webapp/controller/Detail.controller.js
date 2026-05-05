@@ -456,6 +456,10 @@ sap.ui.define([
             // Derive IconTabFilter categories from each field's 'category' property.
             // Fields that have no 'category' are grouped under the tile name.
             var sDefaultCategory = sTileTitle || sTableName || "General";
+            // Stash so post-validation visibility logic uses the same fallback (the tile
+            // name) instead of re-deriving from oFormData.categories[0], which is unstable
+            // after the category sort.
+            this._defaultCategoryName = sDefaultCategory;
             var aCategoryOrder = [];
             var oCategorySet = {};
 
@@ -2105,7 +2109,7 @@ sap.ui.define([
                 // Build a map of category -> whether any field in that category is visible
                 var oCategoryVisibility = {};
                 oFormData.fields.forEach(function (oField) {
-                    var sCat = oField.category || (oFormData.categories && oFormData.categories[0] && oFormData.categories[0].name) || "General";
+                    var sCat = oField.category || self._defaultCategoryName || (oFormData.categories && oFormData.categories[0] && oFormData.categories[0].name) || "General";
                     if (oCategoryVisibility[sCat] === undefined) {
                         oCategoryVisibility[sCat] = false;
                     }
