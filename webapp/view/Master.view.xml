@@ -13,7 +13,7 @@
         </f:title>
         <f:content>
             <VBox id="mainVBox" class="assetMasterContent" height="100%">
-                <HBox justifyContent="End" alignItems="Start" class="sapUiSmallMarginBottom">
+                <HBox justifyContent="Start" alignItems="Start" class="sapUiSmallMarginBottom">
                     <VBox class="sapUiSmallMarginEnd" width="22rem">
                         <Label text="{i18n>lblAsset}:" labelFor="assetSelector" class="sapUiTinyMarginBottom" />
                         <ComboBox
