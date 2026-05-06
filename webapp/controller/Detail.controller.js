@@ -999,6 +999,12 @@ sap.ui.define([
                             // (lets us exclude plain integer entry fields like Colour_Number).
                             self._fieldEditorTypeMap = self._fieldEditorTypeMap || {};
                             self._fieldEditorTypeMap[sFieldKey] = Number(oField.editorTypeId);
+                            // Track fieldTypeId so the populate-path can apply the client's
+                            // whole-number display rule: keep colour-picker values
+                            // (fieldTypeId 3 + editorTypeId 16) untouched while stripping
+                            // redundant trailing decimals from every other numeric value.
+                            self._fieldTypeIdMap = self._fieldTypeIdMap || {};
+                            self._fieldTypeIdMap[sFieldKey] = Number(oField.fieldTypeId);
                         }
 
                         // Attach live-change handler to clear mandatory error state as soon as user enters a value
@@ -3723,6 +3729,24 @@ sap.ui.define([
                             var iActualDecimals = (String(vValue).split(".")[1] || "").length;
                             var iDecimals = Math.max(iUnitDecimals, iActualDecimals);
                             sDisplayValue = fConverted.toFixed(iDecimals);
+                        }
+                    }
+                    // Per client rule: drop redundant decimals from whole-number values
+                    // so e.g. "321.0" / "444.00" display as "321" / "444", matching IC
+                    // Web. Values with meaningful decimals like "1234.9" pass through
+                    // unchanged. Runs after unit-formatting too — the unit branch above
+                    // calls toFixed(iDecimals) which pads whole values like 444 with
+                    // trailing zeros ("444.00") per the unit's Decimals setting, and that
+                    // padding needs to be stripped before display. Colour-picker fields
+                    // (fieldTypeId 3 + editorTypeId 16) are skipped — their integer
+                    // TColor values must remain literal.
+                    var iFieldType = self._fieldTypeIdMap && self._fieldTypeIdMap[sFieldKey];
+                    var iEditorType = self._fieldEditorTypeMap && self._fieldEditorTypeMap[sFieldKey];
+                    var bIsColourPicker = iFieldType === 3 && iEditorType === 16;
+                    if (!bIsColourPicker && /^-?\d+\.\d+$/.test(sDisplayValue)) {
+                        var fNumeric = parseFloat(sDisplayValue);
+                        if (!isNaN(fNumeric) && Number.isFinite(fNumeric) && fNumeric === Math.trunc(fNumeric)) {
+                            sDisplayValue = String(Math.trunc(fNumeric));
                         }
                     }
                     oControl.setValue(sDisplayValue);
