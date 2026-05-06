@@ -529,6 +529,7 @@ sap.ui.define([
             self._unitLinkMap = {};
             self._unitFieldInfo = {};
             self._categoryTabMap = {};
+            self._simpleForms = [];
             self._pendingComboBoxValues = {};
             self._pendingLookupCount = 0;
             self._formDataTableName = sTableName;
@@ -570,9 +571,33 @@ sap.ui.define([
             var self = this;
             var aFields = Array.isArray(oFormData && oFormData.fields) ? oFormData.fields : [];
 
-            // Find all fields that are foreign-table references
+            // Find all fields that are foreign-table references.
+            // Skip a foreign field when the same metadata also has a "shadow" inverse
+            // field (fieldTypeId 42 with nestedField.businessObjectName equal to the
+            // foreign BO name + "___Inverse"). The inverse field renders the same
+            // foreign data via an f(n) popup, so expanding the foreign field would
+            // double-up the content. IC Web hides the foreign expansion in this case.
+            // Example: CIG_General_Information has Sensor_Location (foreign LT_Well_Sensor_Location)
+            // and Sensor_Location_Group (LT_Well_Sensor_Location___Inverse) — only the
+            // Group field should render. Component Location has no inverse counterpart,
+            // so it continues to expand as before.
             var aForeignFields = aFields.filter(function (oField) {
-                return oField.fieldTypeId === 19 && oField.foreignTableId;
+                if (oField.fieldTypeId !== 19 || !oField.foreignTableId) {
+                    return false;
+                }
+                var sParentBoName = oField.nestedField && oField.nestedField.businessObjectName;
+                if (sParentBoName) {
+                    var sInverseBoName = sParentBoName + "___Inverse";
+                    var bHasInverseField = aFields.some(function (oOther) {
+                        return oOther !== oField &&
+                            oOther.nestedField &&
+                            oOther.nestedField.businessObjectName === sInverseBoName;
+                    });
+                    if (bHasInverseField) {
+                        return false;
+                    }
+                }
+                return true;
             });
 
             if (aForeignFields.length === 0) {
@@ -584,7 +609,16 @@ sap.ui.define([
 
             aForeignFields.forEach(function (oForeignField) {
                 var sForeignTableId = oForeignField.foreignTableId;
+                // Match the bucketing logic in openDynamicFormDialog: fields with no
+                // explicit `category` are placed in `_defaultCategoryName` (the tile
+                // title), NOT in oFormData.categories[0]. The first metadata category
+                // is often unrelated (e.g. "Performance Standard" on CIG_General_Information),
+                // so falling back to it caused the splice in oCategorizedFields to miss
+                // — the BO-expanded fields never appeared in the correct tab and the
+                // parent foreign field stayed hidden via nestedField.formVisible:false
+                // (observed: Component Location field disappeared from Component Data tab).
                 var sParentCategory = oForeignField.category ||
+                    self._defaultCategoryName ||
                     (oFormData.categories && oFormData.categories[0] && oFormData.categories[0].name) || "General";
 
                 $.ajax({
@@ -801,8 +835,19 @@ sap.ui.define([
                 var aSubTableBlocks = []; // sub-table controls rendered above the form
 
                 if (oCategorizedFields[oCategory.name] && oCategorizedFields[oCategory.name].length > 0) {
-                    // Sort fields by formOrder before processing
+                    // Sort fields with metadata-visible fields ahead of metadata-hidden
+                    // ones. Visible fields are ordered by formOrder. Hidden fields keep
+                    // metadata file order (stable-sort no-op) — their formOrder values
+                    // often pair them with a visible counterpart (e.g. Global_Gas at 32
+                    // mirrors Pressure O/R at 32) and are not meaningful as a sequence
+                    // of their own. IC Web renders hidden helpers in metadata file order;
+                    // matching that here gets Global Liquid before Global Gas on the
+                    // Performance Standard tab.
                     var aSortedFields = oCategorizedFields[oCategory.name].slice().sort(function (a, b) {
+                        var bHiddenA = a && a.formVisible === false;
+                        var bHiddenB = b && b.formVisible === false;
+                        if (bHiddenA !== bHiddenB) { return bHiddenA ? 1 : -1; }
+                        if (bHiddenA && bHiddenB) { return 0; }
                         return self._getFormOrderValue(a) - self._getFormOrderValue(b);
                     });
 
@@ -822,10 +867,12 @@ sap.ui.define([
                             aNonBoFields.push(oField);
                         }
                     });
-                    // Rebuild sorted fields: non-BO fields first, then each BO group
+                    // Rebuild sorted fields: non-BO fields first, then each BO group.
+                    // The empty-implicit-container whitespace that this leaves behind
+                    // when the leading non-BO fields are runtime-hidden is cleaned up
+                    // post-validation by _hideEmptyFormContainers.
                     aSortedFields = aNonBoFields;
                     aBoGroups.forEach(function (oGroup) {
-                        // Insert a separator marker for BO group
                         aSortedFields.push({ _boGroupTitle: oGroup.label, _isGroupSeparator: true });
                         aSortedFields = aSortedFields.concat(oGroup.fields);
                     });
@@ -924,10 +971,11 @@ sap.ui.define([
                                     container: oInput
                                 };
                             }
-                            // Register as a colour field when either the metadata explicitly
-                            // marks it (editorTypeId 16) or the field name contains "colour".
-                            if (Number(oField.editorTypeId) === 16 ||
-                                /colour/i.test(oField.name || oField.fieldName || "")) {
+                            // Register as a colour field only when the metadata explicitly
+                            // marks it (editorTypeId 16). The name-pattern fallback was
+                            // removed because plain integer fields like "Colour Number"
+                            // were being incorrectly painted as a colour swatch.
+                            if (Number(oField.editorTypeId) === 16) {
                                 self._colourInputMap[sFieldKey] = oInput;
                             }
                             // Fields that store numeric IDs or calculated numbers must
@@ -936,6 +984,10 @@ sap.ui.define([
                                 self._skipColorFields = self._skipColorFields || {};
                                 self._skipColorFields[sFieldKey] = true;
                             }
+                            // Track editorTypeId for the populate-path TColor heuristic
+                            // (lets us exclude plain integer entry fields like Colour_Number).
+                            self._fieldEditorTypeMap = self._fieldEditorTypeMap || {};
+                            self._fieldEditorTypeMap[sFieldKey] = Number(oField.editorTypeId);
                         }
 
                         // Attach live-change handler to clear mandatory error state as soon as user enters a value
@@ -1120,12 +1172,24 @@ sap.ui.define([
                     );
                 }
 
-                // Create SimpleForm for this category
+                // Force single-column layout so BO-group FormContainers always stack
+                // vertically and stay left-aligned. The default ResponsiveGridLayout
+                // (columnsL=2) tiles FormContainers across two grid slots; when any
+                // preceding container ends up empty — either from metadata-hidden fields
+                // or from runtime visibility rules (e.g. "Visible for Valve Asset Type"
+                // categories) — the next BO group is pushed into the right column with
+                // empty space on the left.
                 var oSimpleForm = new sap.ui.layout.form.SimpleForm({
                     editable: true,
                     layout: "ResponsiveGridLayout",
+                    columnsXL: 1,
+                    columnsL: 1,
+                    columnsM: 1,
                     content: aFormContent
                 });
+                // Register so _hideEmptyFormContainers can walk this form post-validation
+                // and hide any FormContainer whose elements all turned invisible.
+                self._simpleForms.push(oSimpleForm);
 
                 // Build scroll content: optional comment text, then sub-tables, then the form
                 var aScrollContent = [];
@@ -1190,6 +1254,48 @@ sap.ui.define([
                 var oSelect = new sap.m.Select({ width: "100%", forceSelection: false });
                 this._loadLookupItems(oSelect, oField.lookupListId);
                 return oSelect;
+            }
+
+            // Editable colour picker — non-calculated fields with editorTypeId 16
+            // (e.g. fieldTypeId 3 + editorTypeId 16). Calculated colours (fieldTypeId 40)
+            // continue down to the disabled-Input branch in case 40.
+            if (Number(oField.editorTypeId) === 16 && Number(oField.fieldTypeId) !== 40) {
+                var self = this;
+                var oColourInput = new sap.m.Input({
+                    showValueHelp: true,
+                    valueHelpOnly: true,
+                    valueHelpIconSrc: "sap-icon://palette"
+                });
+                oColourInput.attachValueHelpRequest(function (oEvent) {
+                    var oCtrl = oEvent.getSource();
+                    var sFieldKeyLocal = oField.fieldName || oField.name;
+                    sap.ui.require(["sap/m/ColorPalettePopover"], function (ColorPalettePopover) {
+                        var oPopover = new ColorPalettePopover({
+                            // Hide "Default Colour" button — its value is "transparent",
+                            // which can't be encoded as a TColor and lands as 0 in the input.
+                            showDefaultColorButton: false,
+                            colorSelect: function (oEv) {
+                                var sRaw = String(oEv.getParameter("value") || "").trim();
+                                if (!sRaw || sRaw === "transparent") { return; }
+                                // Popover may emit hex (#FFFF00), shorthand (#FF0), or
+                                // a CSS named colour (e.g. "yellow"). Normalise to #RRGGBB.
+                                var sHex = self._resolveCssColorToHex(sRaw);
+                                if (!sHex) { return; }
+                                var iTColor = self._cssHexToTcolor(sHex);
+                                oCtrl.setValue(String(iTColor));
+                                if (self._colourValueMap) { self._colourValueMap[sFieldKeyLocal] = sHex; }
+                                var oInner = oCtrl.getDomRef("inner");
+                                if (oInner) {
+                                    oInner.style.backgroundColor = sHex;
+                                    oInner.style.color = "transparent";
+                                }
+                                oCtrl.fireChange({ value: String(iTColor) });
+                            }
+                        });
+                        oPopover.openBy(oCtrl);
+                    });
+                });
+                return oColourInput;
             }
 
             // Create appropriate control based on field type
@@ -1285,6 +1391,13 @@ sap.ui.define([
                                 });
                                 this._makeDatePickerOnly(oCalcDatePicker);
                                 return oCalcDatePicker;
+                            case 11: // DateTime — calculated date+time values (e.g. Last Sensor Reading, Next Scheduled Reading)
+                                return new sap.m.DateTimePicker({
+                                    displayFormat: "dd/MM/yyyy HH:mm:ss",
+                                    showWeekNumbers: false,
+                                    enabled: false,
+                                    placeholder: oField.blankText || ""
+                                });
                             case 5: // Boolean — display as Yes/No text (matches legacy IC Web)
                                 var oCalcBoolInput = new sap.m.Input({
                                     enabled: false,
@@ -1292,7 +1405,8 @@ sap.ui.define([
                                 });
                                 oCalcBoolInput.data("calcBoolean", true);
                                 return oCalcBoolInput;
-                            case 1: // String — calculated text values (e.g. Traffic Light Status)
+                            case 1:  // String — calculated text values (e.g. Traffic Light Status)
+                            case 16: // TColor / coloured-text — calculated value is a string (e.g. "Medium", "High")
                                 return new sap.m.Input({
                                     type: "Text",
                                     enabled: false,
@@ -2002,6 +2116,33 @@ sap.ui.define([
                 }
             });
         },
+        _hideEmptyFormContainers: function () {
+            if (!this._simpleForms || !this._simpleForms.length) {
+                return;
+            }
+            this._simpleForms.forEach(function (oSimpleForm) {
+                if (!oSimpleForm || oSimpleForm.bIsDestroyed) { return; }
+                var oForm = oSimpleForm.getAggregation("form");
+                if (!oForm || typeof oForm.getFormContainers !== "function") { return; }
+                oForm.getFormContainers().forEach(function (oContainer) {
+                    var aElements = (typeof oContainer.getFormElements === "function")
+                        ? oContainer.getFormElements() : [];
+                    var bAnyVisible = aElements.some(function (oElement) {
+                        var oLabel = (typeof oElement.getLabel === "function") ? oElement.getLabel() : null;
+                        if (oLabel && typeof oLabel.getVisible === "function" && oLabel.getVisible()) {
+                            return true;
+                        }
+                        var aFields = (typeof oElement.getFields === "function") ? oElement.getFields() : [];
+                        return aFields.some(function (oFld) {
+                            return oFld && typeof oFld.getVisible === "function" && oFld.getVisible();
+                        });
+                    });
+                    if (typeof oContainer.setVisible === "function") {
+                        oContainer.setVisible(bAnyVisible);
+                    }
+                });
+            });
+        },
         _updateFieldVisibilityFromValidation: function (oValidationResponse, sResolvedHash) {
             if (!oValidationResponse || !this._fieldControlMap) {
                 return;
@@ -2107,6 +2248,14 @@ sap.ui.define([
                 }
             });
 
+            // After per-field visibility is settled, collapse FormContainers whose
+            // entire content is invisible. Without this, a SimpleForm container whose
+            // FormElements all became invisible (typically the leading implicit
+            // container holding fields hidden by runtime visibility rules — e.g. the
+            // BTP "Visible for Valve Asset Type" tab) would still draw its padding
+            // and produce whitespace at the top of the tab.
+            this._hideEmptyFormContainers();
+
             // After all field visibilities are updated, hide tabs whose fields are all hidden
             if (this._categoryTabMap && oFormData.fields) {
                 // Build a map of category -> whether any field in that category is visible
@@ -2211,6 +2360,21 @@ sap.ui.define([
                             }
                         } else {
                             oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                        }
+                        // If this is a colour-mapped Input, repaint the swatch with the new value
+                        if (self._colourInputMap && self._colourInputMap[sFieldKey]) {
+                            var sNewHex = self._tcolorToCssHex(Number(vValue));
+                            if (sNewHex) {
+                                self._colourValueMap = self._colourValueMap || {};
+                                self._colourValueMap[sFieldKey] = sNewHex;
+                                if (!oControl.getEnabled()) { oControl.setValue(""); }
+                                var oColInner = oControl.getDomRef("inner");
+                                if (oColInner) {
+                                    oColInner.style.backgroundColor = sNewHex;
+                                    oColInner.style.color = oControl.getEnabled() ? "transparent" : "#000000";
+                                    oColInner.style.fontWeight = "bold";
+                                }
+                            }
                         }
                     } else if (oControl.isA && oControl.isA("sap.m.TextArea")) {
                         oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
@@ -2560,11 +2724,11 @@ sap.ui.define([
                 var oInput = self._colourInputMap[sFieldKey];
                 var sHex = self._colourValueMap[sFieldKey];
                 if (!oInput || !sHex) { return; }
-                oInput.setValue("");
+                if (!oInput.getEnabled()) { oInput.setValue(""); }
                 var oInner = oInput.getDomRef("inner");
                 if (oInner) {
                     oInner.style.backgroundColor = sHex;
-                    oInner.style.color = "#000000";
+                    oInner.style.color = oInput.getEnabled() ? "transparent" : "#000000";
                     oInner.style.fontWeight = "bold";
                 }
             });
@@ -2903,6 +3067,35 @@ sap.ui.define([
             var g = (v >>> 8) & 0xFF;
             var b = (v >>> 16) & 0xFF;
             return "#" + [r, g, b].map(function (n) { return n.toString(16).padStart(2, "0"); }).join("").toUpperCase();
+        },
+        _cssHexToTcolor: function (sHex) {
+            var s = String(sHex || "").replace(/^#/, "").trim();
+            if (s.length === 3) { s = s.split("").map(function (c) { return c + c; }).join(""); }
+            if (!/^[0-9a-fA-F]{6}$/.test(s)) { return 0; }
+            var r = parseInt(s.substr(0, 2), 16);
+            var g = parseInt(s.substr(2, 2), 16);
+            var b = parseInt(s.substr(4, 2), 16);
+            return ((b & 0xFF) << 16) | ((g & 0xFF) << 8) | (r & 0xFF);
+        },
+        _resolveCssColorToHex: function (sColor) {
+            if (!sColor) { return null; }
+            var s = String(sColor).trim();
+            // Already hex (with or without leading #) — normalise to #RRGGBB
+            var m = /^#?([0-9a-fA-F]{6})$|^#?([0-9a-fA-F]{3})$/.exec(s);
+            if (m) {
+                var h = m[1] || m[2].split("").map(function (c) { return c + c; }).join("");
+                return "#" + h.toUpperCase();
+            }
+            // Named colour or rgb()/rgba() — resolve via the DOM
+            var el = document.createElement("div");
+            el.style.color = s;
+            document.body.appendChild(el);
+            var sComputed = window.getComputedStyle(el).color;
+            document.body.removeChild(el);
+            var rgb = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(sComputed);
+            if (!rgb) { return null; }
+            var pad = function (n) { return Number(n).toString(16).padStart(2, "0"); };
+            return "#" + (pad(rgb[1]) + pad(rgb[2]) + pad(rgb[3])).toUpperCase();
         },
         _populateLinkedFields: function (oLinkedResponse, sBusinessObjectName) {
             if (!oLinkedResponse) { return; }
@@ -3420,12 +3613,17 @@ sap.ui.define([
                     if (self._colourInputMap && self._colourInputMap[sFieldKey] && oControl.isA("sap.m.Input")) {
                         var sHex = self._tcolorToCssHex(Number(vValue));
                         if (sHex) {
-                            oControl.setValue("");
+                            // Keep the integer value visible & in getValue() for editable
+                            // colour pickers so save submits the picked colour. Read-only
+                            // calculated colour fields (enabled:false) get the value cleared
+                            // so only the swatch is visible — matching the legacy behaviour.
+                            if (!oControl.getEnabled()) { oControl.setValue(""); }
                             self._colourValueMap[sFieldKey] = sHex;
+                            var sTextColor = oControl.getEnabled() ? "transparent" : "#000000";
                             var oInner = oControl.getDomRef("inner");
                             if (oInner) {
                                 oInner.style.backgroundColor = sHex;
-                                oInner.style.color = "#000000";
+                                oInner.style.color = sTextColor;
                                 oInner.style.fontWeight = "bold";
                             } else {
                                 oControl.addEventDelegate({
@@ -3433,7 +3631,7 @@ sap.ui.define([
                                         var oDomInner = oControl.getDomRef("inner");
                                         if (oDomInner) {
                                             oDomInner.style.backgroundColor = sHex;
-                                            oDomInner.style.color = "#000000";
+                                            oDomInner.style.color = sTextColor;
                                             oDomInner.style.fontWeight = "bold";
                                         }
                                     }
@@ -3443,10 +3641,12 @@ sap.ui.define([
                     } else if (oControl.isA("sap.m.Input") &&
                                !(self._unitFieldInfo && self._unitFieldInfo[sFieldKey]) &&
                                !(self._skipColorFields && self._skipColorFields[sFieldKey]) &&
+                               (self._fieldEditorTypeMap && self._fieldEditorTypeMap[sFieldKey] !== 4) &&
                                /status|colou?r/i.test(sFieldKey || "")) {
                         // Detect pure positive integer values as TColor (e.g. Risk_Status colour codes).
-                        // Guarded by name pattern + 24-bit range so plain integer fields like
-                        // Valve_failure_threshold (e.g. 222222222) aren't misread as colour codes.
+                        // Guarded by name pattern + 24-bit range + editorTypeId !== 4 so plain
+                        // integer entry fields like Colour_Number / Valve_failure_threshold
+                        // aren't misread as colour codes.
                         var vRaw = vValue;
                         var bIsColorInt = (typeof vRaw === "number" && Number.isInteger(vRaw) && vRaw > 0 && vRaw <= 0xFFFFFF) ||
                             (typeof vRaw === "string" && /^\d+$/.test(vRaw.trim()) && parseInt(vRaw.trim(), 10) > 0 && parseInt(vRaw.trim(), 10) <= 0xFFFFFF);
