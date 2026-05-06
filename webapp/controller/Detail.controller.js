@@ -1087,7 +1087,7 @@ sap.ui.define([
                             }
                             aFormContent.push(oHBox);
                         }
-                        else if (bVisible && Number(oField.fieldTypeId) == 18) {
+                        else if (Number(oField.fieldTypeId) == 18) {
                             // Create ƒ(p) button for global table lookup fields (fieldTypeId 18 only)
                             var oGlobalBtn = new sap.m.Button({
                                 text: "ƒ(p)",
@@ -1098,6 +1098,9 @@ sap.ui.define([
                             // Disable the form field for fieldTypeId 18 (value set via ƒ(p) lookup)
                             oInput.setEnabled(false);
 
+                            // HBox controls overall visibility; reset inner input so it stays
+                            // rendered when updateStates later flips a hidden field visible.
+                            oInput.setVisible(true);
                             oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
                             oGlobalBtn.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
                             var aHBoxItems = [oInput, oGlobalBtn];
@@ -1110,14 +1113,15 @@ sap.ui.define([
                                 items: aHBoxItems,
                                 renderType: "Bare",
                                 alignItems: "Center",
-                                width: "100%"
+                                width: "100%",
+                                visible: bVisible
                             });
                             if (sFieldKey) {
                                 self._fieldVisibilityMap[sFieldKey].container = oHBox;
                             }
                             aFormContent.push(oHBox);
                         }
-                        else if (bVisible && Number(oField.fieldTypeId) == 42) {
+                        else if (Number(oField.fieldTypeId) == 42) {
                             // Create ƒ(n) button for global table lookup fields
                             var oGlobalNBtn = new sap.m.Button({
                                 text: "ƒ(n)",
@@ -1125,6 +1129,9 @@ sap.ui.define([
                             });
                             oGlobalNBtn.addStyleClass("italicButton");
 
+                            // HBox controls overall visibility; reset inner input so it stays
+                            // rendered when updateStates later flips a hidden field visible.
+                            oInput.setVisible(true);
                             oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
                             oGlobalNBtn.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
                             var aHBoxItems = [oInput, oGlobalNBtn];
@@ -1137,7 +1144,8 @@ sap.ui.define([
                                 items: aHBoxItems,
                                 renderType: "Bare",
                                 alignItems: "Center",
-                                width: "100%"
+                                width: "100%",
+                                visible: bVisible
                             });
                             if (sFieldKey) {
                                 self._fieldVisibilityMap[sFieldKey].container = oHBox;
@@ -2205,12 +2213,40 @@ sap.ui.define([
                     return;
                 }
 
-                // Rule 1b: Expanded BO fields (from foreign table) are governed by
-                // gridVisible, not by the parent table's validation updateStates.
-                // Keep them visible and skip the updateStates check.
+                // Rule 1b: Expanded BO fields (from foreign table) inherit visibility
+                // from their parent foreign field's updateState. The parent field is
+                // replaced by the expanded fields in oFormData.fields, so its updateState
+                // would otherwise be ignored — leaving e.g. the "Visible for Valve Asset
+                // Type" tab visible for non-Valve assets because expanded BO fields keep
+                // the category populated. Fall back to "visible" only when the parent has
+                // no updateState (preserves the original behaviour for tabs without
+                // asset-type rules).
                 if (oField._businessObjectName) {
-                    fnSetFieldVisible(sFieldKey, true);
-                    iVisibleFieldCount++;
+                    var bExpandedVisible = true;
+                    var sParentFieldKey = self._expandedFieldToApiFieldMap &&
+                        self._expandedFieldToApiFieldMap[sFieldKey];
+                    if (sParentFieldKey && bHasUpdateStates) {
+                        var oParentUpdateState;
+                        if (Array.isArray(oUpdateStates)) {
+                            oParentUpdateState = oUpdateStates.find(function (oItem) {
+                                return oItem.fieldName === sParentFieldKey ||
+                                    oItem.name === sParentFieldKey ||
+                                    oItem.id === sParentFieldKey;
+                            });
+                        } else {
+                            oParentUpdateState = oUpdateStates[sParentFieldKey] ||
+                                oUpdateStates[String(sParentFieldKey)];
+                        }
+                        if (oParentUpdateState !== undefined && oParentUpdateState !== null) {
+                            bExpandedVisible = oParentUpdateState.visible !== undefined
+                                ? oParentUpdateState.visible === true
+                                : true;
+                        }
+                    }
+                    fnSetFieldVisible(sFieldKey, bExpandedVisible);
+                    if (bExpandedVisible) {
+                        iVisibleFieldCount++;
+                    }
                     return;
                 }
 
@@ -2466,7 +2502,10 @@ sap.ui.define([
                     return; // Skip table controls
                 }
                 
-                if (vValue !== undefined && vValue !== null && vValue !== "") {
+                // Include empty strings so the backend can detect cleared fields and
+                // recalculate dependent calculated fields (e.g. clearing String A/B must
+                // re-evaluate Function 2 to empty rather than retain a stale value).
+                if (vValue !== undefined && vValue !== null) {
                     oPayload[sFieldKey] = vValue;
                 }
             });
