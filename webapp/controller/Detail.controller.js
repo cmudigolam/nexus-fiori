@@ -984,6 +984,17 @@ sap.ui.define([
                                 self._skipColorFields = self._skipColorFields || {};
                                 self._skipColorFields[sFieldKey] = true;
                             }
+                            // Track calculated fields (fieldTypeId 40). The validation
+                            // response omits calc fields whose computed value is null
+                            // (e.g. "Function A + B" / "Numeric to Whole Number" when
+                            // their numeric inputs are cleared). Without this map we
+                            // can't tell the difference between "backend left it alone"
+                            // and "backend computed null but didn't echo" — the
+                            // post-apply step uses this map to clear stale calc values.
+                            if (Number(oField.fieldTypeId) === 40) {
+                                self._calculatedFieldKeys = self._calculatedFieldKeys || {};
+                                self._calculatedFieldKeys[sFieldKey] = true;
+                            }
                             // Track editorTypeId for the populate-path TColor heuristic
                             // (lets us exclude plain integer entry fields like Colour_Number).
                             self._fieldEditorTypeMap = self._fieldEditorTypeMap || {};
@@ -1153,14 +1164,18 @@ sap.ui.define([
                             aFormContent.push(oHBox);
                         }
                         else if (oUnitLink) {
-                            // Input fills remaining space; unit link stays compact on the right
+                            // Input fills remaining space; unit link stays compact on the right.
+                            // HBox carries the visibility — reset oInput so it stays rendered
+                            // when updateStates later flips a hidden field visible.
+                            oInput.setVisible(true);
                             oInput.setLayoutData(new sap.m.FlexItemData({ growFactor: 1, shrinkFactor: 1, minWidth: "0" }));
                             oUnitLink.setLayoutData(new sap.m.FlexItemData({ growFactor: 0, shrinkFactor: 0 }));
                             var oHBox = new sap.m.HBox({
                                 items: [oInput, oUnitLink],
                                 renderType: "Bare",
                                 alignItems: "Center",
-                                width: "100%"
+                                width: "100%",
+                                visible: bVisible
                             });
                             if (sFieldKey) {
                                 self._fieldVisibilityMap[sFieldKey].container = oHBox;
@@ -2431,6 +2446,55 @@ sap.ui.define([
                 });
             }
 
+            // Backend omits calc fields (fieldTypeId 40) from updatedValues when the
+            // computed value is null — e.g. "Function A + B" and "Numeric to Whole
+            // Number" disappear from the response after their numeric inputs are
+            // cleared, while string calcs like "Function 2" are echoed back as "".
+            // Clear any tracked calc field that the response did not include so the
+            // displayed value matches the recomputation instead of retaining a stale
+            // result. Skip when there is no validation response payload at all
+            // (request failed) so we don't wipe valid values on transient errors.
+            if (self._calculatedFieldKeys && oValidationResponse &&
+                typeof oValidationResponse === "object") {
+                var oReceivedValues = (oValidationResponse.updatedValues &&
+                    typeof oValidationResponse.updatedValues === "object")
+                    ? oValidationResponse.updatedValues
+                    : {};
+                Object.keys(self._calculatedFieldKeys).forEach(function (sCalcKey) {
+                    if (Object.prototype.hasOwnProperty.call(oReceivedValues, sCalcKey)) {
+                        return; // backend echoed a value — already applied above
+                    }
+                    var oCalcControl = self._fieldControlMap[sCalcKey];
+                    if (!oCalcControl) { return; }
+                    if (oCalcControl.isA && oCalcControl.isA("sap.m.Input")) {
+                        if (oCalcControl.data && oCalcControl.data("calcBoolean")) {
+                            oCalcControl.setValue("");
+                        } else {
+                            oCalcControl.setValue("");
+                        }
+                        // Reset colour swatch if this calc renders as a colour input
+                        if (self._colourInputMap && self._colourInputMap[sCalcKey]) {
+                            if (self._colourValueMap) { self._colourValueMap[sCalcKey] = null; }
+                            var oColInner = oCalcControl.getDomRef("inner");
+                            if (oColInner) {
+                                oColInner.style.backgroundColor = "";
+                                oColInner.style.color = "";
+                                oColInner.style.fontWeight = "";
+                            }
+                        }
+                    } else if (oCalcControl.isA && oCalcControl.isA("sap.m.TextArea")) {
+                        oCalcControl.setValue("");
+                    } else if (oCalcControl.isA && oCalcControl.isA("sap.m.CheckBox")) {
+                        oCalcControl.setSelected(false);
+                    } else if (oCalcControl.isA && oCalcControl.isA("sap.m.DatePicker")) {
+                        oCalcControl.setValue("");
+                        if (oCalcControl.setDateValue) { oCalcControl.setDateValue(null); }
+                    } else if (oCalcControl.isA && oCalcControl.isA("sap.m.TimePicker")) {
+                        oCalcControl.setValue("");
+                    }
+                });
+            }
+
             // Apply readOnly state from updateStates
             if (oValidationResponse.updateStates && Array.isArray(oValidationResponse.updateStates)) {
                 oValidationResponse.updateStates.forEach(function (oState) {
@@ -2483,12 +2547,24 @@ sap.ui.define([
                 if (!oControl) { return; }
                 
                 var vValue;
+                var bForceSendNull = false;
                 if (oControl.isA && oControl.isA("sap.m.Select")) {
                     vValue = oControl.getSelectedKey();
                 } else if (oControl.isA && oControl.isA("sap.m.ComboBox")) {
                     vValue = oControl.getValue();
                 } else if (oControl.isA && oControl.isA("sap.m.Input")) {
                     vValue = oControl.getValue();
+                    // Numeric inputs return "" when cleared — same as string inputs —
+                    // but the backend treats "" for numeric fields ambiguously and
+                    // skips recalculating dependent calculated fields. Convert to an
+                    // explicit null and force-send so calculated fields like
+                    // "Function A + B" or "Numeric to Whole Number" re-evaluate to
+                    // empty when their numeric inputs are cleared (matches the
+                    // working string-field behaviour for BTP Calc 2).
+                    if (vValue === "" && oControl.getType && oControl.getType() === "Number") {
+                        vValue = null;
+                        bForceSendNull = true;
+                    }
                 } else if (oControl.isA && oControl.isA("sap.m.TextArea")) {
                     vValue = oControl.getValue();
                 } else if (oControl.isA && oControl.isA("sap.m.CheckBox")) {
@@ -2501,11 +2577,12 @@ sap.ui.define([
                 } else if (oControl.isA && oControl.isA("sap.ui.table.Table")) {
                     return; // Skip table controls
                 }
-                
-                // Include empty strings so the backend can detect cleared fields and
-                // recalculate dependent calculated fields (e.g. clearing String A/B must
-                // re-evaluate Function 2 to empty rather than retain a stale value).
-                if (vValue !== undefined && vValue !== null) {
+
+                // Include empty strings so the backend can detect cleared string fields
+                // and recalculate dependent calculated fields. Numeric inputs cleared
+                // by the user are force-sent as null (see bForceSendNull) so the
+                // backend recognises the empty state for numeric calculations too.
+                if (vValue !== undefined && (vValue !== null || bForceSendNull)) {
                     oPayload[sFieldKey] = vValue;
                 }
             });
