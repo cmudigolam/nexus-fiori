@@ -1005,6 +1005,53 @@ sap.ui.define([
                             // redundant trailing decimals from every other numeric value.
                             self._fieldTypeIdMap = self._fieldTypeIdMap || {};
                             self._fieldTypeIdMap[sFieldKey] = Number(oField.fieldTypeId);
+                            // Track the field's format directive (e.g. "d0", "d2", "d10")
+                            // so both the populate-path and the input change handler can
+                            // round numeric values to the configured decimal places.
+                            // Without this, a field configured with format "d2" can show
+                            // a stored value like "4.333333" or accept user input like
+                            // "4.12333" without enforcement.
+                            if (oField.format) {
+                                self._fieldFormatMap = self._fieldFormatMap || {};
+                                self._fieldFormatMap[sFieldKey] = oField.format;
+                            } else if (oField.nestedField && oField.nestedField.format) {
+                                // For fieldTypeId 18 (nested-lookup) fields the format
+                                // directive lives on the nestedField — e.g. parent
+                                // "Measured_Internal_CGR" has no format, but its
+                                // nestedField "Applied_Internal_CGR" has "d2". Without
+                                // this fallback the parent shows raw backend precision
+                                // ("4.37065304627105") instead of the configured "4.37".
+                                self._fieldFormatMap = self._fieldFormatMap || {};
+                                self._fieldFormatMap[sFieldKey] = oField.nestedField.format;
+                            }
+                        }
+
+                        // Attach a change handler that enforces the format directive on
+                        // user input — if the field is configured with format "d2" and
+                        // the user types "4.12333", the value is rounded to "4.12" on
+                        // blur. Uses attachChange (not attachLiveChange) so we don't
+                        // fight the user mid-typing. Sentinel formats like
+                        // "d2147483647" (max int — "show as-is") and other shapes
+                        // ("s-1" scientific, "d-1") fall through unchanged.
+                        if (oField.format && oInput && oInput.attachChange) {
+                            var oInputFormatMatch = /^d(\d+)$/i.exec(oField.format);
+                            if (oInputFormatMatch) {
+                                var iInputFormatDecimals = parseInt(oInputFormatMatch[1], 10);
+                                if (iInputFormatDecimals >= 0 && iInputFormatDecimals <= 20) {
+                                    (function (oCtrl, iDec) {
+                                        oCtrl.attachChange(function () {
+                                            var sCurrent = oCtrl.getValue();
+                                            if (!sCurrent) { return; }
+                                            var fParsed = parseFloat(sCurrent);
+                                            if (isNaN(fParsed) || !Number.isFinite(fParsed)) { return; }
+                                            var sFormatted = fParsed.toFixed(iDec);
+                                            if (sFormatted !== sCurrent) {
+                                                oCtrl.setValue(sFormatted);
+                                            }
+                                        });
+                                    }(oInput, iInputFormatDecimals));
+                                }
+                            }
                         }
 
                         // Attach live-change handler to clear mandatory error state as soon as user enters a value
@@ -2416,7 +2463,37 @@ sap.ui.define([
                                 oControl.setValue(bBoolVal ? "Yes" : "No");
                             }
                         } else {
-                            oControl.setValue(vValue !== undefined && vValue !== null ? String(vValue) : "");
+                            // Apply the field's format directive ("d{N}") and the
+                            // whole-number rule on validation echoes too. Without this,
+                            // calc fields like "Selected Int. Corr. Rate" (format "d3")
+                            // get re-set with raw backend precision like
+                            // "4.37065304627105" each time validation runs, overwriting
+                            // the formatted value applied during initial populate.
+                            var sValToSet = vValue !== undefined && vValue !== null ? String(vValue) : "";
+                            if (sValToSet) {
+                                var iVrFieldType = self._fieldTypeIdMap && self._fieldTypeIdMap[sFieldKey];
+                                var iVrEditorType = self._fieldEditorTypeMap && self._fieldEditorTypeMap[sFieldKey];
+                                var bVrColourPicker = iVrFieldType === 3 && iVrEditorType === 16;
+                                if (!bVrColourPicker) {
+                                    var sVrFormat = self._fieldFormatMap && self._fieldFormatMap[sFieldKey];
+                                    if (sVrFormat) {
+                                        var oVrFormatMatch = /^d(\d+)$/i.exec(sVrFormat);
+                                        if (oVrFormatMatch) {
+                                            var iVrDecimals = parseInt(oVrFormatMatch[1], 10);
+                                            if (iVrDecimals >= 0 && iVrDecimals <= 20) {
+                                                var fVrNumeric = parseFloat(sValToSet);
+                                                if (!isNaN(fVrNumeric) && Number.isFinite(fVrNumeric)) {
+                                                    sValToSet = fVrNumeric.toFixed(iVrDecimals);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (/^-?\d+\.\d+$/.test(sValToSet)) {
+                                        sValToSet = sValToSet.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+                                    }
+                                }
+                            }
+                            oControl.setValue(sValToSet);
                         }
                         // If this is a colour-mapped Input, repaint the swatch with the new value
                         if (self._colourInputMap && self._colourInputMap[sFieldKey]) {
@@ -3731,22 +3808,45 @@ sap.ui.define([
                             sDisplayValue = fConverted.toFixed(iDecimals);
                         }
                     }
-                    // Per client rule: drop redundant decimals from whole-number values
-                    // so e.g. "321.0" / "444.00" display as "321" / "444", matching IC
-                    // Web. Values with meaningful decimals like "1234.9" pass through
-                    // unchanged. Runs after unit-formatting too — the unit branch above
-                    // calls toFixed(iDecimals) which pads whole values like 444 with
-                    // trailing zeros ("444.00") per the unit's Decimals setting, and that
-                    // padding needs to be stripped before display. Colour-picker fields
-                    // (fieldTypeId 3 + editorTypeId 16) are skipped — their integer
-                    // TColor values must remain literal.
+                    // Numeric display rules. Colour-picker fields (fieldTypeId 3 +
+                    // editorTypeId 16) are skipped entirely — their integer TColor
+                    // values must remain literal.
                     var iFieldType = self._fieldTypeIdMap && self._fieldTypeIdMap[sFieldKey];
                     var iEditorType = self._fieldEditorTypeMap && self._fieldEditorTypeMap[sFieldKey];
                     var bIsColourPicker = iFieldType === 3 && iEditorType === 16;
-                    if (!bIsColourPicker && /^-?\d+\.\d+$/.test(sDisplayValue)) {
-                        var fNumeric = parseFloat(sDisplayValue);
-                        if (!isNaN(fNumeric) && Number.isFinite(fNumeric) && fNumeric === Math.trunc(fNumeric)) {
-                            sDisplayValue = String(Math.trunc(fNumeric));
+                    if (!bIsColourPicker) {
+                        // Step 1: respect the field's format directive when present.
+                        // "d0" → 0 decimals, "d2" → 2 decimals, "d10" → 10 decimals.
+                        // Sentinel values like "d2147483647" (max int = "show as-is")
+                        // and other shapes ("s-1" scientific, "d-1") fall through
+                        // unchanged. Runs after unit-formatting so the format rule
+                        // overrides the unit's Decimals padding for fields that have
+                        // both. Without this, the BTP Numeric Fields Testing tab shows
+                        // raw stored precision like "4.333333" in a field configured
+                        // with format "d0" instead of rounding to "4".
+                        var sFieldFormat = self._fieldFormatMap && self._fieldFormatMap[sFieldKey];
+                        if (sFieldFormat) {
+                            var oFormatMatch = /^d(\d+)$/i.exec(sFieldFormat);
+                            if (oFormatMatch) {
+                                var iFormatDecimals = parseInt(oFormatMatch[1], 10);
+                                // Cap at 20 — toFixed loses precision beyond that, and
+                                // sentinels like 2147483647 mean "no enforced limit".
+                                if (iFormatDecimals >= 0 && iFormatDecimals <= 20) {
+                                    var fNumericForFormat = parseFloat(sDisplayValue);
+                                    if (!isNaN(fNumericForFormat) && Number.isFinite(fNumericForFormat)) {
+                                        sDisplayValue = fNumericForFormat.toFixed(iFormatDecimals);
+                                    }
+                                }
+                            }
+                        }
+                        // Step 2: strip trailing zeros from any decimal value — generic
+                        // cleanup that runs after both unit-formatting and the format
+                        // directive. "4.50" → "4.5", "0.10" → "0.1", "0.000" → "0",
+                        // "321.0" → "321", "1234.9" / "4.371" pass through unchanged.
+                        // The whole-number client rule is a natural special case of
+                        // this (when stripping leaves only "X." we strip the dot too).
+                        if (/^-?\d+\.\d+$/.test(sDisplayValue)) {
+                            sDisplayValue = sDisplayValue.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
                         }
                     }
                     oControl.setValue(sDisplayValue);
