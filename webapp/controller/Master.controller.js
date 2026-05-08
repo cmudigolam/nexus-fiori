@@ -1176,7 +1176,33 @@ sap.ui.define([
         },
 
         _restoreInitialTreeSelection: function (oTreeTable, aRows) {
-            // No auto-selection on load — user must explicitly click a node.
+            if (!oTreeTable || !Array.isArray(aRows) || aRows.length === 0) {
+                return;
+            }
+
+            // Fast path: if the previously focused row is already present in the loaded
+            // root rows, select it directly without an extra API round-trip.
+            var iInitialIndex = this._getInitialSelectedRowIndex(aRows);
+            if (iInitialIndex > -1) {
+                this._selectRowByIndex(oTreeTable, iInitialIndex);
+                return;
+            }
+
+            // Otherwise resolve the saved VN_ID via View_Node to obtain its Full_Location,
+            // then expand the tree down to that node and select it. When there is no saved
+            // selection (e.g. fresh session) we leave the tree without auto-selection.
+            var sFocusedId = this._masterSessionState && (this._masterSessionState.focusedRow || this._masterSessionState.selectedItems);
+            if (sFocusedId && sFocusedId !== "-1") {
+                this._resolveFocusedPathByVnId(sFocusedId, function (sFocusedPath) {
+                    if (sFocusedPath) {
+                        this._expandPathToNode(sFocusedPath, oTreeTable, function (oTargetRow) {
+                            if (oTargetRow && oTargetRow.CT_ID) {
+                                this._applySelectedRowState(oTargetRow, false);
+                            }
+                        }.bind(this));
+                    }
+                }.bind(this));
+            }
         },
 
         _loadRootNodes: function (oSelectedNode, fnAfterLoad) {
