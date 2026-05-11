@@ -1054,18 +1054,16 @@ sap.ui.define([
                             }
                         }
 
-                        // Attach live-change handler to clear mandatory error state as soon as user enters a value
-                        if (oField.required) {
-                            (function (oCtrl) {
-                                var fnClear = function () { self._clearControlError(oCtrl); };
-                                if (oCtrl.attachLiveChange) {
-                                    oCtrl.attachLiveChange(fnClear);
-                                }
-                                if (oCtrl.attachChange) {
-                                    oCtrl.attachChange(fnClear);
-                                }
-                            }(oInput));
-                        }
+                        // Clear validation error state (red outline / valueState) as soon
+                        (function (oCtrl) {
+                            var fnClear = function () { self._clearControlError(oCtrl); };
+                            if (oCtrl.attachLiveChange) {
+                                oCtrl.attachLiveChange(fnClear);
+                            }
+                            if (oCtrl.attachChange) {
+                                oCtrl.attachChange(fnClear);
+                            }
+                        }(oInput));
 
                         // Check if field has a unitId — add unit symbol link
                         var bHasUnit = oField.unitId !== undefined && oField.unitId !== null;
